@@ -51,15 +51,18 @@ func (cn *Conn) RemoteAddr() net.Addr {
 	return nil
 }
 
-func (cn *Conn) SetDeadline(_ time.Time) error {
+func (cn *Conn) SetDeadline(t time.Time) error {
+	cn.p.SetDeadline(t)
 	return nil
 }
 
-func (cn *Conn) SetReadDeadline(_ time.Time) error {
+func (cn *Conn) SetReadDeadline(t time.Time) error {
+	cn.p.SetReadDeadline(t)
 	return nil
 }
 
-func (cn *Conn) SetWriteDeadline(_ time.Time) error {
+func (cn *Conn) SetWriteDeadline(t time.Time) error {
+	cn.p.SetWriteDeadline(t)
 	return nil
 }
 func Wrapper(p *Pool) net.Conn {
