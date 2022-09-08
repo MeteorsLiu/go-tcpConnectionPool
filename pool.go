@@ -133,7 +133,7 @@ func (p *Pool) dialOne() (net.Conn, error) {
 	} else {
 		c, err = p.dialer.DialContext(p.customContext, "tcp", p.remoteAddr)
 	}
-	if err != nil {
+	if err == nil {
 		p.setDeadline(c)
 	}
 	return c, err
