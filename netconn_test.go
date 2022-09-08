@@ -8,8 +8,8 @@ import (
 
 func TestNetconn(t *testing.T) {
 	var wg sync.WaitGroup
-
-	w := Wrapper(New("127.0.0.1:9998", DefaultOpts()))
+	p := New("127.0.0.1:9998", DefaultOpts())
+	w := Wrapper(p)
 
 	for i := 0; i < 10000; i++ {
 		wg.Add(1)
@@ -19,6 +19,7 @@ func TestNetconn(t *testing.T) {
 				t.Log(err)
 			}
 		}()
+		t.Log(p.Len())
 	}
 	wg.Wait()
 }

@@ -101,6 +101,10 @@ func (p *Pool) Close() {
 	p.Flush()
 }
 
+func (p *Pool) Len() int32 {
+	return p.len
+}
+
 func (p *Pool) SetDeadline(t time.Time) {
 	p.Deadline.deadLine = &t
 }
