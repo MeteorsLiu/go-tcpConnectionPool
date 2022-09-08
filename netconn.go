@@ -14,8 +14,8 @@ func (cn *Conn) Read(b []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	defer cn.p.Put(c)
 	n, err = c.Read(b)
+	// Only put the fine connection into the pool
 	if err == nil {
 		defer cn.p.Put(c)
 	} else {
