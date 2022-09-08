@@ -1,6 +1,7 @@
 package connpool
 
 import (
+	"binary"
 	"fmt"
 	"sync"
 	"testing"
@@ -15,7 +16,9 @@ func TestNetconn(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := w.Write([]byte(fmt.Sprintf("Test%d", i))); err != nil {
+			b := make([]byte, 2)
+			binary.LittleEndian.PutUint16(b, uint16(i))
+			if _, err := w.Write(b); err != nil {
 				t.Log(err)
 			}
 		}()
