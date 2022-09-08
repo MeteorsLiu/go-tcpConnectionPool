@@ -33,6 +33,8 @@ type Pool struct {
 // Put the TCP connection into the pool.
 func (p *Pool) Put(c net.Conn) {
 	select {
+	case <-p.close.Done():
+		return
 	case p.conn <- c:
 		_ = atomic.AddInt32(&p.len, 1)
 	default:
