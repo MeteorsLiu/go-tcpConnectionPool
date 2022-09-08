@@ -140,13 +140,13 @@ func (p *Pool) dialOne() (net.Conn, error) {
 
 }
 
-func New(remoteAddr string, opts ...Opt) *Pool {
+func New(remoteAddr string, opts Opts) *Pool {
 	var d *net.Dialer
 	var t time.Duration
 	var m int32
 	var c context.Context
 	if len(opts) > 0 {
-		d, t, m, c = (Opts)(opts).Parse()
+		d, t, m, c = opts.Parse()
 	}
 	if t == 0 {
 		t = 5 * time.Second

@@ -6,8 +6,7 @@ import (
 	"time"
 )
 
-type Opt interface{}
-type Opts []Opt
+type Opts []interface{}
 
 func DefaultOpts() Opts {
 	return Opts{}
