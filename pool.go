@@ -22,7 +22,12 @@ type Pool struct {
 	timeout       time.Duration
 	customContext context.Context
 	close         context.Context
-	doClose       context.CancelFunc
+	Deadline      struct {
+		deadLine      *time.Time
+		readDeadline  *time.Time
+		writeDeadline *time.Time
+	}
+	doClose context.CancelFunc
 }
 
 // Put the TCP connection into the pool.
@@ -93,11 +98,46 @@ func (p *Pool) Close() {
 	p.doClose()
 	p.Flush()
 }
-func (p *Pool) dialOne() (net.Conn, error) {
-	if p.customContext == nil {
-		return p.dialer.Dial("tcp", p.remoteAddr)
+
+func (p *Pool) SetDeadline(t time.Time) {
+	p.Deadline.deadLine = &t
+}
+func (p *Pool) SetReadDeadline(t time.Time) {
+	p.Deadline.readDeadline = &t
+}
+func (p *Pool) SetWriteDeadline(t time.Time) {
+	p.Deadline.writeDeadline = &t
+}
+func (p *Pool) setDeadline(c net.Conn) {
+	if p.Deadline.deadLine != nil {
+		c.SetDeadline(*p.Deadline.deadLine)
+		return
 	}
-	return p.dialer.DialContext(p.customContext, "tcp", p.remoteAddr)
+	if p.Deadline.readDeadline != nil {
+		c.SetReadDeadline(*p.Deadline.readDeadline)
+		return
+	}
+	if p.Deadline.writeDeadline != nil {
+		c.SetWriteDeadline(*p.Deadline.writeDeadline)
+		return
+	}
+
+}
+
+// dialOne creates a TCP Connection,
+func (p *Pool) dialOne() (net.Conn, error) {
+	var c net.Conn
+	var err error
+	if p.customContext == nil {
+		c, err = p.dialer.Dial("tcp", p.remoteAddr)
+	} else {
+		c, err = p.dialer.DialContext(p.customContext, "tcp", p.remoteAddr)
+	}
+	if err != nil {
+		p.setDeadline(c)
+	}
+	return c, err
+
 }
 
 func New(remoteAddr string, opts ...Opt) *Pool {
