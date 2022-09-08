@@ -17,7 +17,7 @@ func (cn *Conn) Read(b []byte) (n int, err error) {
 	n, err = c.Read(b)
 	// Only put the fine connection into the pool
 	if err == nil {
-		defer cn.p.Put(c)
+		cn.p.Put(c)
 	} else {
 		c.Close()
 	}
@@ -31,7 +31,7 @@ func (cn *Conn) Write(b []byte) (n int, err error) {
 	}
 	n, err = c.Write(b)
 	if err == nil {
-		defer cn.p.Put(c)
+		cn.p.Put(c)
 	} else {
 		c.Close()
 	}
