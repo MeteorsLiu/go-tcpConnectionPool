@@ -8,9 +8,12 @@ import (
 	"testing"
 )
 
-func serve(wg *sync.WaitGroup, t *testing.T) {
-	defer wg.Done()
-	l, _ := net.Listen("tcp", "127.0.0.1:9999")
+func serve(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:9998")
+	if err != nil {
+		t.Errorf("%v", err)
+		return
+	}
 	for {
 		c, err := l.Accept()
 		if err != nil {
@@ -20,16 +23,15 @@ func serve(wg *sync.WaitGroup, t *testing.T) {
 		go func() {
 			defer c.Close()
 			res, _ := io.ReadAll(c)
-			fmt.Println(res)
+			t.Log(string(res))
 		}()
 	}
 }
 
 func TestNetconn(t *testing.T) {
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go serve(&wg, t)
-	w := Wrapper(New("127.0.0.1:9999", DefaultOpts()))
+	go serve(t)
+	w := Wrapper(New("127.0.0.1:9998", DefaultOpts()))
 
 	for i := 0; i < 10000; i++ {
 		wg.Add(1)
