@@ -8,7 +8,8 @@ import (
 	"testing"
 )
 
-func serve(t *testing.T) {
+func serve(wg *sync.WaitGroup, t *testing.T) {
+	defer wg.Done()
 	l, _ := net.Listen("tcp", "127.0.0.1:9999")
 	for {
 		c, err := l.Accept()
@@ -25,9 +26,11 @@ func serve(t *testing.T) {
 }
 
 func TestNetconn(t *testing.T) {
-	go serve(t)
-	w := Wrapper(New("127.0.0.1:9999", DefaultOpts()))
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go serve(&wg, t)
+	w := Wrapper(New("127.0.0.1:9999", DefaultOpts()))
+
 	for i := 0; i < 10000; i++ {
 		wg.Add(1)
 		go func() {
