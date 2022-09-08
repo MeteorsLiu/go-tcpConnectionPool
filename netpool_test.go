@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"testing"
 )
 
@@ -26,7 +27,13 @@ func serve(t *testing.T) {
 func TestNetconn(t *testing.T) {
 	go serve(t)
 	w := Wrapper(New("127.0.0.1:9999", DefaultOpts()))
+	var wg sync.WaitGroup
 	for i := 0; i < 10000; i++ {
-		go w.Write([]byte(fmt.Sprintf("Test%d", i)))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w.Write([]byte(fmt.Sprintf("Test%d", i)))
+		}()
 	}
+	wg.Wait()
 }
