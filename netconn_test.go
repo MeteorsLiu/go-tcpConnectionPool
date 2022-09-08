@@ -31,7 +31,7 @@ func serve(t *testing.T) {
 func TestNetconn(t *testing.T) {
 	var wg sync.WaitGroup
 	t.Parallel()
-	go serve()
+	go serve(t)
 	w := Wrapper(New("127.0.0.1:9998", DefaultOpts()))
 
 	for i := 0; i < 10000; i++ {
