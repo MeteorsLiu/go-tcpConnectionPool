@@ -1,7 +1,7 @@
 package connpool
 
 import (
-	"binary"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"testing"
