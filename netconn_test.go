@@ -32,7 +32,9 @@ func TestNetconn(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			w.Write([]byte(fmt.Sprintf("Test%d", i)))
+			if _, err := w.Write([]byte(fmt.Sprintf("Test%d", i))); err != nil {
+				t.Log(err)
+			}
 		}()
 	}
 	wg.Wait()
