@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	MIN_SIZE = 1024
+	MIN_SIZE = 128
 )
 
 type Pool struct {
