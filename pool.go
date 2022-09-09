@@ -174,6 +174,7 @@ func New(remoteAddr string, opts Opts) *Pool {
 		remoteAddr:    remoteAddr,
 		customContext: c,
 	}
+	p.close, p.doClose = context.WithCancel(context.Background())
 	go func() {
 		for i := int32(0); i < p.minSize; i++ {
 			if c, err := p.dialOne(); err == nil {
@@ -181,6 +182,6 @@ func New(remoteAddr string, opts Opts) *Pool {
 			}
 		}
 	}()
-	p.close, p.doClose = context.WithCancel(context.Background())
+
 	return p
 }
