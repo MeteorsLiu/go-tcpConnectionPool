@@ -56,6 +56,8 @@ func (p *Pool) Get() (net.Conn, error) {
 		}
 	}()
 	select {
+	case <-p.close.Done():
+		return nil, errors.New("the connections pool is closed")
 	case c = <-p.conn:
 	default:
 		// no available connections in the pool
