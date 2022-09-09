@@ -10,7 +10,7 @@ func TestNetconn(t *testing.T) {
 	var wg sync.WaitGroup
 	p := New("127.0.0.1:9998", DefaultOpts())
 	w := Wrapper(p)
-
+	defer w.Close()
 	for i := 0; i < 10000; i++ {
 		wg.Add(1)
 		go func() {
