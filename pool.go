@@ -67,7 +67,7 @@ func (p *Pool) MoveToTail(cp *ConnNode) {
 
 func (p *Pool) Get() (*ConnNode, error) {
 	p.mutex.RLock()
-	node := p.head.next
+	node := p.head
 	p.mutex.RUnlock()
 	succ := false
 	minCount := int32(0)
@@ -117,7 +117,7 @@ func (p *Pool) Put(c *ConnNode) {
 func (p *Pool) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	node := p.head.next
+	node := p.head
 	for node != nil {
 		// close the connection
 		// if there is someone reading or writing, it will return EOF immediately.
