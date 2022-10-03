@@ -104,6 +104,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 }
 func (p *Pool) Put(c *ConnNode) {
 	consumer := atomic.AddInt32(&c.consumer, -1)
+	defer c.Lock.Unlock()
 	if atomic.LoadInt32(&p.minConsumer) > consumer {
 		_ = atomic.SwapInt32(&p.minConsumer, consumer)
 		p.MoveToHead(c)
