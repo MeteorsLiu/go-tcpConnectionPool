@@ -97,7 +97,8 @@ func (p *Pool) Get() (*ConnNode, error) {
 		}
 	}
 	minC := atomic.AddInt32(&node.consumer, 1)
-	if atomic.LoadInt32(&p.minConsumer) > minC {
+	gminC := atomic.LoadInt32(&p.minConsumer)
+	if gminC > minC || gminC == 0 {
 		_ = atomic.SwapInt32(&p.minConsumer, minC)
 	}
 	return node, nil
