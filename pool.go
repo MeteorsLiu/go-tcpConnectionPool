@@ -160,14 +160,44 @@ func (p *Pool) dialOne() (net.Conn, error) {
 
 }
 func (p *Pool) connInit(minSize int32) error {
-	for i := int32(0); i < minSize; i++ {
-		c, err := p.dialOne()
-		if err != nil {
-			return err
+	errCh := make(chan error, 1)
+	done, cancel := context.WithCancel(context.Background())
+	go func() {
+		defer func() {
+			select {
+			case <-done.Done():
+			default:
+				cancel()
+			}
+		}()
+		for i := int32(0); i < minSize; i++ {
+			go func() {
+				select {
+				case <-done.Done():
+					return
+				default:
+				}
+				c, err := p.dialOne()
+				if err != nil {
+					select {
+					case errCh <- err:
+					default:
+					}
+				}
+				p.Push(c)
+			}()
 		}
-		p.Push(c)
+
+	}()
+
+	select {
+	case <-done.Done():
+	case err := <-errCh:
+		cancel()
+		return err
 	}
 
+	return nil
 }
 func New(remote string, opts Opts) (*Pool, error) {
 	var d *net.Dialer
