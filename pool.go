@@ -163,21 +163,25 @@ func (p *Pool) connInit(minSize int32) error {
 	errCh := make(chan error, 1)
 	done, cancel := context.WithCancel(context.Background())
 	go func() {
+		var wg sync.WaitGroup
 		defer func() {
 			select {
 			case <-done.Done():
 			default:
+				wg.Wait()
 				cancel()
 			}
 		}()
 		for i := int32(0); i < minSize; i++ {
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
+				c, err := p.dialOne()
 				select {
 				case <-done.Done():
 					return
 				default:
 				}
-				c, err := p.dialOne()
 				if err != nil {
 					select {
 					case errCh <- err:
@@ -187,7 +191,6 @@ func (p *Pool) connInit(minSize int32) error {
 				p.Push(c)
 			}()
 		}
-
 	}()
 
 	select {
