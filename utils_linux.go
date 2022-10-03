@@ -1,6 +1,6 @@
 //go:build linux
 
-package connpool
+package pool
 
 import (
 	"syscall"

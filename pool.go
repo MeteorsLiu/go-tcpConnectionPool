@@ -1,133 +1,147 @@
-package connpool
+package pool
 
 import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"sync/atomic"
-	"time"
 )
 
 const (
 	MIN_SIZE = 128
 )
 
+var (
+	NO_AVAILABLE_CONN = errors.New("no available connections!")
+)
+
+type ConnNode struct {
+	Conn     net.Conn
+	consumer int32
+	Lock     sync.Mutex
+	prev     *ConnNode
+	next     *ConnNode
+}
 type Pool struct {
-	minSize       int32
-	maxSize       int32
-	len           int32
-	remoteAddr    string
-	conn          chan net.Conn
-	dialer        *net.Dialer
-	timeout       time.Duration
-	customContext context.Context
-	close         context.Context
-	Deadline      struct {
-		deadLine      *time.Time
-		readDeadline  *time.Time
-		writeDeadline *time.Time
-	}
-	doClose context.CancelFunc
+	head        *ConnNode
+	tail        *ConnNode
+	mutex       sync.RWMutex
+	num         int32
+	remote      string
+	maxSize     int
+	minConsumer int32
+	connContext context.Context
+	dialer      *net.Dialer
 }
 
-// Put the TCP connection into the pool.
-func (p *Pool) Put(c net.Conn) {
-	select {
-	case <-p.close.Done():
-		return
-	case p.conn <- c:
-		_ = atomic.AddInt32(&p.len, 1)
-	default:
-		// don't put it into the pool if the pool is full
+func (p *Pool) MoveToHead(cp *ConnNode) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if cp.prev != nil {
+		cp.prev.next = cp.next
 	}
+	if cp.next != nil {
+		cp.next.prev = cp.prev
+	}
+	cp.next = p.head
+	cp.prev = nil
+	p.head.prev = cp
+	p.head = cp
 }
 
-// Get one TCP connection from the pool.
-//
-// If the connection reaches the max limit, poll until one enqueue during TIMEOUT.
-//
-// If not, set up a new one
-func (p *Pool) Get() (net.Conn, error) {
-	var c net.Conn
-	var err error
-	defer func() {
-		if err == nil {
-			_ = atomic.AddInt32(&p.len, -1)
-		}
-	}()
-	select {
-	case <-p.close.Done():
-		return nil, errors.New("the connections pool is closed")
-	case c = <-p.conn:
-	default:
-		// no available connections in the pool
-		// so try to get one
-		if p.len >= p.maxSize {
-			// wait until available
-			ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
-			defer cancel()
-			for {
-				select {
-				case c = <-p.conn:
-					return c, nil
-				case <-ctx.Done():
-					return p.dialOne()
-				case <-p.close.Done():
-					return nil, errors.New("the connections pool is closed")
-				}
+func (p *Pool) MoveToTail(cp *ConnNode) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if cp.prev != nil {
+		cp.prev.next = cp.next
+	}
+	if cp.next != nil {
+		cp.next.prev = cp.prev
+	}
+	cp.next = nil
+	cp.prev = p.tail
+	p.tail.next = cp
+	p.tail = cp
+}
+
+func (p *Pool) Get() (*ConnNode, error) {
+	p.mutex.RLock()
+	node := p.head.next
+	p.mutex.RUnlock()
+	succ := false
+	minCount := int32(0)
+	var min *ConnNode
+	for !succ && node != nil {
+		// try to grab the lock
+		succ = node.Lock.TryLock()
+		if !succ {
+			if minCount > node.consumer || minCount == 0 {
+				minCount = node.consumer
+				min = node
 			}
+			p.mutex.RLock()
+			node = node.next
+			p.mutex.RUnlock()
+		}
+	}
+	if node == nil {
+		// tries are all fail
+		// stage into the lock strvation
+		if min != nil {
+			// grab the lock
+			min.Lock.Lock()
+			node = min
 		} else {
-			c, err = p.dialOne()
-		}
-
-	}
-	return c, err
-}
-
-// Flush dequeues all TCP Connections and close them.
-func (p *Pool) Flush() {
-	for {
-		select {
-		case c := <-p.conn:
-			c.Close()
-			_ = atomic.AddInt32(&p.len, -1)
-		default:
-			if p.len == 0 {
-				return
-			}
+			return nil, NO_AVAILABLE_CONN
 		}
 	}
+	minC := atomic.AddInt32(&node.consumer, 1)
+	if atomic.LoadInt32(&p.minConsumer) > minC {
+		_ = atomic.SwapInt32(&p.minConsumer, minC)
+	}
+	return node, nil
 }
+func (p *Pool) Put(c *ConnNode) {
+	consumer := atomic.AddInt32(&c.consumer, -1)
+	if atomic.LoadInt32(&p.minConsumer) > consumer {
+		_ = atomic.SwapInt32(&p.minConsumer, consumer)
+		p.MoveToHead(c)
+	} else {
+		p.MoveToTail(c)
+	}
+
+}
+
 func (p *Pool) Close() {
-	p.doClose()
-	p.Flush()
-}
-
-func (p *Pool) Len() int32 {
-	return p.len
-}
-
-func (p *Pool) SetDeadline(t time.Time) {
-	p.Deadline.deadLine = &t
-}
-func (p *Pool) SetReadDeadline(t time.Time) {
-	p.Deadline.readDeadline = &t
-}
-func (p *Pool) SetWriteDeadline(t time.Time) {
-	p.Deadline.writeDeadline = &t
-}
-func (p *Pool) setDeadline(c net.Conn) {
-	if p.Deadline.deadLine != nil {
-		c.SetDeadline(*p.Deadline.deadLine)
-		return
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	node := p.head.next
+	for node != nil {
+		// close the connection
+		// if there is someone reading or writing, it will return EOF immediately.
+		node.Conn.Close()
+		node.Lock.Unlock()
+		tmp := node.next
+		// tell gc to free it
+		// actually it isn't required
+		node = nil
+		node = tmp
 	}
-	if p.Deadline.readDeadline != nil {
-		c.SetReadDeadline(*p.Deadline.readDeadline)
-		return
+}
+func (p *Pool) Push(c net.Conn) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	new := &ConnNode{
+		Conn: c,
 	}
-	if p.Deadline.writeDeadline != nil {
-		c.SetWriteDeadline(*p.Deadline.writeDeadline)
-		return
+	if p.head == nil && p.tail == nil {
+		p.head = new
+		p.tail = new
+	} else {
+		new.prev = p.tail
+		p.tail.next = new
+		p.tail = new
 	}
 
 }
@@ -136,54 +150,41 @@ func (p *Pool) setDeadline(c net.Conn) {
 func (p *Pool) dialOne() (net.Conn, error) {
 	var c net.Conn
 	var err error
-	if p.customContext == nil {
-		c, err = p.dialer.Dial("tcp", p.remoteAddr)
+	if p.connContext == nil {
+		c, err = p.dialer.Dial("tcp", p.remote)
 	} else {
-		c, err = p.dialer.DialContext(p.customContext, "tcp", p.remoteAddr)
-	}
-	if err == nil {
-		p.setDeadline(c)
+		c, err = p.dialer.DialContext(p.connContext, "tcp", p.remote)
 	}
 	return c, err
 
 }
+func (p *Pool) connInit(minSize int32) error {
+	for i := int32(0); i < minSize; i++ {
+		c, err := p.dialOne()
+		if err != nil {
+			return err
+		}
+		p.Push(c)
+	}
 
-func New(remoteAddr string, opts Opts) *Pool {
+}
+func New(remote string, opts Opts) (*Pool, error) {
 	var d *net.Dialer
-	var t time.Duration
 	var m int32
 	var c context.Context
 	if len(opts) > 0 {
-		d, t, m, c = opts.Parse()
+		d, m, c = opts.Parse()
 	}
-	if t == 0 {
-		t = 5 * time.Second
-	}
+
 	if d == nil {
 		d = &net.Dialer{}
 	}
 	if m == 0 {
 		m = MIN_SIZE
 	}
-
-	MAX_SIZE := GetSysMax()
-	p := &Pool{
-		dialer:        d,
-		conn:          make(chan net.Conn, MAX_SIZE),
-		maxSize:       MAX_SIZE,
-		minSize:       m,
-		timeout:       t,
-		remoteAddr:    remoteAddr,
-		customContext: c,
+	p := &Pool{remote: remote, connContext: c, dialer: d}
+	if err := p.connInit(m); err != nil {
+		return nil, err
 	}
-	p.close, p.doClose = context.WithCancel(context.Background())
-	go func() {
-		for i := int32(0); i < p.minSize; i++ {
-			if c, err := p.dialOne(); err == nil {
-				p.Put(c)
-			}
-		}
-	}()
-
-	return p
+	return p, nil
 }
