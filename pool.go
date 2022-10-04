@@ -98,12 +98,11 @@ func (p *Pool) GetReadableConn() (net.Conn, error) {
 	var c net.Conn
 	select {
 	case c = <-p.readableQueue:
+		return c, nil
 	case <-p.isClose.Done():
 		return nil, POOL_CLOSED
-	default:
-		return nil, NO_AVAILABLE_CONN
 	}
-	return c, nil
+
 }
 func (p *Pool) Get() (*ConnNode, error) {
 	p.mutex.RLock()
