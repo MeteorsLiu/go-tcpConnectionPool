@@ -11,7 +11,7 @@ func (p *PoolWrapper) Read(b []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	return c.Conn.Read(b)
+	return c.Read(b)
 }
 
 func (p *PoolWrapper) Write(b []byte) (n int, err error) {
