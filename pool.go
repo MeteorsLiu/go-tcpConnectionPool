@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -300,7 +299,6 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if err := p.epollInit(); err != nil {
 		return nil, err
 	}
-	runtime.SetFinalizer(p, p.EpollClose)
 	if err := p.connInit(m); err != nil {
 		return nil, err
 	}
