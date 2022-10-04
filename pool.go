@@ -42,7 +42,7 @@ type Pool struct {
 	readableQueue chan net.Conn
 	epoll         struct {
 		events [MIN_SIZE]syscall.EpollEvent
-		fd     uintptr
+		fd     int
 	}
 }
 
