@@ -16,14 +16,14 @@ func TestNetconn(t *testing.T) {
 	w := Wrapper(p)
 	defer w.Close()
 	id := make(chan int)
+	wg.Add(500)
 	for i := 0; i < 500; i++ {
-		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			b := make([]byte, 2)
 			binary.LittleEndian.PutUint16(b, uint16(<-id))
 			if _, err := w.Write(b); err != nil {
-				t.Log(err)
+				t.Log("error")
 			}
 		}()
 		id <- i

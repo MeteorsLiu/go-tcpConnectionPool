@@ -50,6 +50,7 @@ type Pool struct {
 func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+	log.Printf("head change to %d", cp.fd)
 	if cp.prev != nil {
 		cp.prev.next = cp.next
 	}
