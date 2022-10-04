@@ -138,6 +138,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 	}
 	minC := atomic.AddInt32(&node.consumer, 1)
 	gminC := atomic.LoadInt32(&p.minConsumer)
+	log.Printf("minC: %d", gminC)
 	if gminC > minC || gminC == 0 {
 		_ = atomic.SwapInt32(&p.minConsumer, minC)
 	}
@@ -158,6 +159,7 @@ func (p *Pool) Put(c *ConnNode) {
 func (p *Pool) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+	p.EpollClose()
 	node := p.head
 	for node != nil {
 		// close the connection
