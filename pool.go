@@ -165,7 +165,6 @@ func (p *Pool) Close() {
 		// close the connection
 		// if there is someone reading or writing, it will return EOF immediately.
 		node.Conn.Close()
-		node.Lock.Unlock()
 		tmp := node.next
 		// tell gc to free it
 		// actually it isn't required
