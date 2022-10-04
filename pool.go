@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	MIN_SIZE = 128
+	MIN_SIZE                = 128
+	MIN_READABLE_QUEUE_SIZE = 1024
 )
 
 var (
@@ -41,7 +42,7 @@ type Pool struct {
 	close         context.CancelFunc
 	readableQueue chan net.Conn
 	epoll         struct {
-		events [MIN_SIZE]syscall.EpollEvent
+		events [MIN_READABLE_QUEUE_SIZE]syscall.EpollEvent
 		fd     int
 	}
 }
