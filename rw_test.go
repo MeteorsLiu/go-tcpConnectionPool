@@ -27,7 +27,6 @@ func TestNetconn(t *testing.T) {
 			}
 		}()
 		id <- i
-		t.Log(p.Len())
 	}
 	wg.Wait()
 }
