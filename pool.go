@@ -159,7 +159,6 @@ func (p *Pool) Put(c *ConnNode) {
 func (p *Pool) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	p.EpollClose()
 	node := p.head
 	for node != nil {
 		// close the connection
