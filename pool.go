@@ -252,16 +252,17 @@ func (p *Pool) connInit(minSize int32) error {
 		go func() {
 			defer wg.Done()
 			c, err := p.dialOne()
+			if err != nil {
+				select {
+				case errCh <- err:
+					return
+				default:
+				}
+			}
 			select {
 			case <-done.Done():
 				return
 			default:
-			}
-			if err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
 			}
 			p.Push(c)
 		}()
