@@ -50,7 +50,6 @@ type Pool struct {
 func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	log.Printf("head change to %d", cp.fd)
 	if cp.prev != nil {
 		cp.prev.next = cp.next
 	}
@@ -150,9 +149,13 @@ func (p *Pool) Put(c *ConnNode) {
 	defer c.Lock.Unlock()
 	if atomic.LoadInt32(&p.minConsumer) > consumer {
 		_ = atomic.SwapInt32(&p.minConsumer, consumer)
-		p.MoveToHead(c)
+		if p.head != c {
+			p.MoveToHead(c)
+		}
 	} else {
-		p.MoveToTail(c)
+		if p.tail != c {
+			p.MoveToTail(c)
+		}
 	}
 
 }
