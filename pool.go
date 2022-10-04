@@ -42,7 +42,7 @@ type Pool struct {
 	close         context.CancelFunc
 	readableQueue chan net.Conn
 	epoll         struct {
-		events [MIN_READABLE_QUEUE_SIZE]syscall.EpollEvent
+		events [MIN_SIZE]syscall.EpollEvent
 		fd     int
 	}
 }
@@ -290,7 +290,7 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if m == 0 {
 		m = MIN_SIZE
 	}
-	p := &Pool{remote: remote, connContext: c, dialer: d, readableQueue: make(chan net.Conn, MIN_SIZE)}
+	p := &Pool{remote: remote, connContext: c, dialer: d, readableQueue: make(chan net.Conn, MIN_READABLE_QUEUE_SIZE)}
 
 	p.isClose, p.close = context.WithCancel(context.Background())
 	if err := p.epollInit(); err != nil {
