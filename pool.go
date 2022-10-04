@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -158,8 +159,7 @@ func (p *Pool) Put(c *ConnNode) {
 func (p *Pool) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	p.close()
-	syscall.Close(syscall.Handle(p.epoll.fd))
+	p.EpollClose()
 	node := p.head
 	for node != nil {
 		// close the connection
@@ -242,6 +242,11 @@ func (p *Pool) epollRun() {
 		p.MarkReadable(n)
 	}
 }
+
+func (p *Pool) EpollClose() {
+	p.close()
+	syscall.Close(syscall.Handle(p.epoll.fd))
+}
 func (p *Pool) connInit(minSize int32) error {
 	errCh := make(chan error, 1)
 	done, cancel := context.WithCancel(context.Background())
@@ -296,7 +301,7 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if err := p.epollInit(); err != nil {
 		return nil, err
 	}
-
+	runtime.SetFinalizer(p, p.EpollClose)
 	if err := p.connInit(m); err != nil {
 		return nil, err
 	}
