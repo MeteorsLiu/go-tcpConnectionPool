@@ -116,7 +116,6 @@ func (p *Pool) Get() (*ConnNode, error) {
 		// try to grab the lock
 		succ = node.Lock.TryLock()
 		if !succ {
-			log.Println("grab the lock fail")
 			if minCount > node.consumer || minCount == 0 {
 				minCount = node.consumer
 				min = node
