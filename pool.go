@@ -116,6 +116,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 		// try to grab the lock
 		succ = node.Lock.TryLock()
 		if !succ {
+			log.Println("grab the lock fail")
 			if minCount > node.consumer || minCount == 0 {
 				minCount = node.consumer
 				min = node
@@ -130,6 +131,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 		// stage into the lock strvation
 		if min != nil {
 			// grab the lock
+			log.Println("grab the lock!")
 			min.Lock.Lock()
 			node = min
 		} else {
@@ -138,7 +140,6 @@ func (p *Pool) Get() (*ConnNode, error) {
 	}
 	minC := atomic.AddInt32(&node.consumer, 1)
 	gminC := atomic.LoadInt32(&p.minConsumer)
-	log.Printf("minC: %d", gminC)
 	if gminC > minC || gminC == 0 {
 		_ = atomic.SwapInt32(&p.minConsumer, minC)
 	}
@@ -165,12 +166,12 @@ func (p *Pool) Close() {
 		// close the connection
 		// if there is someone reading or writing, it will return EOF immediately.
 		node.Conn.Close()
-		tmp := node.next
-		// tell gc to free it
-		// actually it isn't required
-		node = nil
-		node = tmp
+		node = node.next
+		if node == p.tail {
+			log.Println("tail")
+		}
 	}
+	log.Println("end")
 }
 func (p *Pool) Push(c net.Conn) {
 	p.mutex.Lock()
