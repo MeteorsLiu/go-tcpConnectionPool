@@ -1,4 +1,4 @@
-package connpool
+package pool
 
 import (
 	"context"
