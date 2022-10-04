@@ -245,44 +245,34 @@ func (p *Pool) epollRun() {
 func (p *Pool) connInit(minSize int32) error {
 	errCh := make(chan error, 1)
 	done, cancel := context.WithCancel(context.Background())
-	go func() {
-		var wg sync.WaitGroup
-		defer func() {
+
+	var wg sync.WaitGroup
+	for i := int32(0); i < minSize; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c, err := p.dialOne()
 			select {
 			case <-done.Done():
+				return
 			default:
-				wg.Wait()
-				cancel()
 			}
-		}()
-		for i := int32(0); i < minSize; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				c, err := p.dialOne()
+			if err != nil {
 				select {
-				case <-done.Done():
-					return
+				case errCh <- err:
 				default:
 				}
-				if err != nil {
-					select {
-					case errCh <- err:
-					default:
-					}
-				}
-				p.Push(c)
-			}()
-		}
-	}()
-
+			}
+			p.Push(c)
+		}()
+	}
 	select {
-	case <-done.Done():
 	case err := <-errCh:
 		cancel()
 		return err
+	default:
+		wg.Wait()
 	}
-
 	return nil
 }
 func New(remote string, opts Opts) (*Pool, error) {
