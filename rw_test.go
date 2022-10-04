@@ -8,7 +8,11 @@ import (
 
 func TestNetconn(t *testing.T) {
 	var wg sync.WaitGroup
-	p := New("127.0.0.1:9998", DefaultOpts())
+	p, err := New("127.0.0.1:9998", DefaultOpts())
+	if err != nil {
+		t.Errorf("cannot start")
+		return
+	}
 	w := Wrapper(p)
 	defer w.Close()
 	id := make(chan int)

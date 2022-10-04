@@ -220,7 +220,7 @@ func (p *Pool) eventAdd(fd int32) error {
 	var event syscall.EpollEvent
 	event.Events = syscall.EPOLLIN
 	event.Fd = fd
-	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, fd, &event); err != nil {
+	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
 		return err
 	}
 	return nil
@@ -244,7 +244,7 @@ func (p *Pool) epollRun() {
 
 func (p *Pool) EpollClose() {
 	p.close()
-	syscall.Close(syscall.Handle(p.epoll.fd))
+	syscall.Close(p.epoll.fd)
 }
 func (p *Pool) connInit(minSize int32) error {
 	errCh := make(chan error, 1)
