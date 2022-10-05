@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	MIN_SIZE                = 128
+	MIN_SIZE                = 16
 	MIN_READABLE_QUEUE_SIZE = 1024
 )
 
