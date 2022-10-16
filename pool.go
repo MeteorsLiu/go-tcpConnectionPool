@@ -145,9 +145,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 				minCount = node.consumer
 				min = node
 			}
-			p.mutex.RLock()
 			node = node.next
-			p.mutex.RUnlock()
 		}
 	}
 	if node == nil {
@@ -155,7 +153,6 @@ func (p *Pool) Get() (*ConnNode, error) {
 		// stage into the lock strvation
 		if min != nil {
 			// grab the lock
-			log.Println("grab the lock!")
 			min.Lock.Lock()
 			node = min
 		} else {
