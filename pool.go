@@ -13,6 +13,8 @@ import (
 const (
 	MIN_SIZE                = 16
 	MIN_READABLE_QUEUE_SIZE = 1024
+	// it seems that the value of syscall.EPOLLET is wrong
+	EPOLLET = 0x80000000
 )
 
 var (
@@ -265,7 +267,7 @@ func (p *Pool) epollInit() error {
 // epoll event add
 func (p *Pool) eventAdd(fd int32) error {
 	var event syscall.EpollEvent
-	event.Events = syscall.EPOLLIN | syscall.EPOLLET
+	event.Events = syscall.EPOLLIN | EPOLLET
 	event.Fd = fd
 	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
 		return err
