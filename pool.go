@@ -273,18 +273,17 @@ func (p *Pool) EpollClose() {
 	p.close()
 	syscall.Close(p.epoll.fd)
 }
-func (p *Pool) connInit(minSize int32) error {
+func (p *Pool) connInit(minSize int32) {
 
 	for i := int32(0); i < minSize; i++ {
 
 		c, err := p.dialOne()
 		if err != nil {
-			return err
+			log.Println(err)
+			continue
 		}
 		p.Push(c)
 	}
-
-	return nil
 }
 func New(remote string, opts Opts) (*Pool, error) {
 	var d *net.Dialer
@@ -306,9 +305,7 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if err := p.epollInit(); err != nil {
 		return nil, err
 	}
-	if err := p.connInit(m); err != nil {
-		return nil, err
-	}
+	go p.connInit(m)
 	go p.epollRun()
 	return p, nil
 }
