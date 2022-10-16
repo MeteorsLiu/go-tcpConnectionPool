@@ -23,7 +23,7 @@ func TestNetconn(t *testing.T) {
 			b := make([]byte, 2)
 			binary.LittleEndian.PutUint16(b, uint16(<-id))
 			if _, err := w.Write(b); err != nil {
-				t.Log("error")
+				t.Log(err)
 			}
 		}()
 		id <- i
