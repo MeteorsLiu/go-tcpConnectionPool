@@ -251,7 +251,8 @@ func (p *Pool) epollInit() error {
 
 func (p *Pool) eventAdd(fd int32) error {
 	var event syscall.EpollEvent
-	event.Events = syscall.EPOLLIN | syscall.EPOLLET
+	event.Events = syscall.EPOLLIN
+	event.Events |= syscall.EPOLLET
 	event.Fd = fd
 	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
 		return err
