@@ -163,7 +163,9 @@ func (p *Pool) Get() (*ConnNode, error) {
 			if err != nil {
 				return nil, NO_AVAILABLE_CONN
 			}
-			return p.Push(c), nil
+			n := p.Push(c)
+			n.Lock.Lock()
+			return n, nil
 		}
 	}
 	minC := atomic.AddInt32(&node.consumer, 1)
