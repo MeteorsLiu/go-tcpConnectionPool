@@ -47,33 +47,58 @@ type Pool struct {
 	}
 }
 
+func (cn *ConnNode) MoveTo(next *ConnNode, prev *ConnNode) {
+	if next != nil {
+		next.prev = cn
+	}
+	if prev != nil {
+		prev.next = cn
+	}
+	if cn.prev != nil {
+		cn.prev.next = cn.next
+	}
+	if cn.next != nil {
+		cn.next.prev = cn.prev
+	}
+	cn.prev = prev
+	cn.next = next
+}
+
+func (cn *ConnNode) After(n *ConnNode) {
+	if cn.prev != nil {
+		cn.prev.next = cn.next
+	}
+	if cn.next != nil {
+		cn.next.prev = cn.prev
+	}
+	n.next = cn
+	cn.prev = n
+	cn.next = nil
+}
+
+func (cn *ConnNode) Before(n *ConnNode) {
+	if cn.prev != nil {
+		cn.prev.next = cn.next
+	}
+	if cn.next != nil {
+		cn.next.prev = cn.prev
+	}
+	n.prev = cn
+	cn.prev = nil
+	cn.next = n
+}
+
 func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	if cp.prev != nil {
-		cp.prev.next = cp.next
-	}
-	if cp.next != nil {
-		cp.next.prev = cp.prev
-	}
-	cp.next = p.head
-	cp.prev = nil
-	p.head.prev = cp
+	cp.Before(p.head)
 	p.head = cp
 }
 
 func (p *Pool) MoveToTail(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	if cp.prev != nil {
-		cp.prev.next = cp.next
-	}
-	if cp.next != nil {
-		cp.next.prev = cp.prev
-	}
-	cp.next = nil
-	cp.prev = p.tail
-	p.tail.next = cp
+	cp.After(p.tail)
 	p.tail = cp
 }
 func (p *Pool) MarkReadable(n int) {
@@ -146,7 +171,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 }
 func (p *Pool) Put(c *ConnNode) {
 	consumer := atomic.AddInt32(&c.consumer, -1)
-	defer c.Lock.Unlock()
+	c.Lock.Unlock()
 	if atomic.LoadInt32(&p.minConsumer) > consumer {
 		_ = atomic.SwapInt32(&p.minConsumer, consumer)
 		if p.head != c {
@@ -191,9 +216,7 @@ func (p *Pool) Push(c net.Conn) {
 		p.head = new
 		p.tail = new
 	} else {
-		new.prev = p.tail
-		p.tail.next = new
-		p.tail = new
+		p.MoveToTail(new)
 	}
 
 }
@@ -251,37 +274,16 @@ func (p *Pool) EpollClose() {
 	syscall.Close(p.epoll.fd)
 }
 func (p *Pool) connInit(minSize int32) error {
-	errCh := make(chan error, 1)
-	done, cancel := context.WithCancel(context.Background())
 
-	var wg sync.WaitGroup
 	for i := int32(0); i < minSize; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			c, err := p.dialOne()
-			if err != nil {
-				select {
-				case errCh <- err:
-					return
-				default:
-				}
-			}
-			select {
-			case <-done.Done():
-				return
-			default:
-			}
-			p.Push(c)
-		}()
+
+		c, err := p.dialOne()
+		if err != nil {
+			return err
+		}
+		p.Push(c)
 	}
-	select {
-	case err := <-errCh:
-		cancel()
-		return err
-	default:
-		wg.Wait()
-	}
+
 	return nil
 }
 func New(remote string, opts Opts) (*Pool, error) {
