@@ -159,7 +159,11 @@ func (p *Pool) Get() (*ConnNode, error) {
 			min.Lock.Lock()
 			node = min
 		} else {
-			return nil, NO_AVAILABLE_CONN
+			c, err := p.dialOne()
+			if err != nil {
+				return nil, NO_AVAILABLE_CONN
+			}
+			return p.Push(c), nil
 		}
 	}
 	minC := atomic.AddInt32(&node.consumer, 1)
@@ -201,7 +205,7 @@ func (p *Pool) Close() {
 	}
 	log.Println("end")
 }
-func (p *Pool) Push(c net.Conn) {
+func (p *Pool) Push(c net.Conn) *ConnNode {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	// Add to epoll events
@@ -218,7 +222,7 @@ func (p *Pool) Push(c net.Conn) {
 	} else {
 		p.MoveToTail(new)
 	}
-
+	return new
 }
 
 // dialOne creates a TCP Connection,
