@@ -311,7 +311,7 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if err := p.epollInit(); err != nil {
 		return nil, err
 	}
-	go p.connInit(m)
+	p.connInit(m)
 	go p.epollRun()
 	return p, nil
 }
