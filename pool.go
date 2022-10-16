@@ -34,7 +34,6 @@ type Pool struct {
 	mutex         sync.RWMutex
 	num           int32
 	remote        string
-	maxSize       int
 	minConsumer   int32
 	connContext   context.Context
 	dialer        *net.Dialer
@@ -47,6 +46,7 @@ type Pool struct {
 	}
 }
 
+// Move the node between next and prev
 func (cn *ConnNode) MoveTo(next *ConnNode, prev *ConnNode) {
 	if next != nil {
 		next.prev = cn
@@ -64,6 +64,7 @@ func (cn *ConnNode) MoveTo(next *ConnNode, prev *ConnNode) {
 	cn.next = next
 }
 
+// move the node after n
 func (cn *ConnNode) After(n *ConnNode) {
 	if cn.prev != nil {
 		cn.prev.next = cn.next
@@ -76,6 +77,7 @@ func (cn *ConnNode) After(n *ConnNode) {
 	cn.next = nil
 }
 
+// move the node ahead n
 func (cn *ConnNode) Before(n *ConnNode) {
 	if cn.prev != nil {
 		cn.prev.next = cn.next
@@ -88,6 +90,7 @@ func (cn *ConnNode) Before(n *ConnNode) {
 	cn.next = n
 }
 
+// move the node to the head
 func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -95,12 +98,15 @@ func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.head = cp
 }
 
+// move the node to the tail
 func (p *Pool) MoveToTail(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	cp.After(p.tail)
 	p.tail = cp
 }
+
+// add readable connections to the readableQueue
 func (p *Pool) MarkReadable(n int) {
 	p.mutex.RLock()
 	node := p.head
@@ -120,6 +126,8 @@ func (p *Pool) MarkReadable(n int) {
 	}
 }
 
+// get a readable connection from readable Queue.
+// commonly, it's blocking. If there's no avaiblable connection, wait until avaiable.
 func (p *Pool) GetReadableConn() (net.Conn, error) {
 	var c net.Conn
 	select {
@@ -130,6 +138,8 @@ func (p *Pool) GetReadableConn() (net.Conn, error) {
 	}
 
 }
+
+// get a writable connection.
 func (p *Pool) Get() (*ConnNode, error) {
 	p.mutex.RLock()
 	node := p.head
@@ -138,7 +148,8 @@ func (p *Pool) Get() (*ConnNode, error) {
 	minCount := int32(0)
 	var min *ConnNode
 	for !succ && node != nil {
-		// try to grab the lock
+		// try to grab the lock.
+		// trylock will not pause the goroutine.
 		succ = node.Lock.TryLock()
 		if !succ {
 			if minCount > node.consumer || minCount == 0 {
@@ -154,10 +165,12 @@ func (p *Pool) Get() (*ConnNode, error) {
 		// tries are all fail
 		// stage into the lock strvation
 		if min != nil {
-			// grab the lock
+			// grab the lock forcely.
 			min.Lock.Lock()
 			node = min
 		} else {
+			// if all are busy
+			// try to dial a new one
 			c, err := p.dialOne()
 			if err != nil {
 				return nil, NO_AVAILABLE_CONN
@@ -174,6 +187,8 @@ func (p *Pool) Get() (*ConnNode, error) {
 	}
 	return node, nil
 }
+
+// put the writable connection into the pool.
 func (p *Pool) Put(c *ConnNode) {
 	consumer := atomic.AddInt32(&c.consumer, -1)
 	c.Lock.Unlock()
@@ -190,9 +205,8 @@ func (p *Pool) Put(c *ConnNode) {
 
 }
 
+// close all connection.
 func (p *Pool) Close() {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
 	p.EpollClose()
 	node := p.head
 	for node != nil {
@@ -202,6 +216,9 @@ func (p *Pool) Close() {
 		node = node.next
 	}
 }
+
+// this is for creating a new connection.
+// push the new connection into the pool
 func (p *Pool) Push(c net.Conn) *ConnNode {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -245,6 +262,7 @@ func (p *Pool) epollInit() error {
 	return nil
 }
 
+// epoll event add
 func (p *Pool) eventAdd(fd int32) error {
 	var event syscall.EpollEvent
 	event.Events = syscall.EPOLLIN
@@ -255,6 +273,7 @@ func (p *Pool) eventAdd(fd int32) error {
 	return nil
 }
 
+// epoll daemon
 func (p *Pool) epollRun() {
 	for {
 		n, err := syscall.EpollWait(p.epoll.fd, p.epoll.events[:], -1)
@@ -275,8 +294,9 @@ func (p *Pool) EpollClose() {
 	p.close()
 	syscall.Close(p.epoll.fd)
 }
+
+// initialize the connection first.
 func (p *Pool) connInit(minSize int32) {
-	log.Println(minSize)
 	for i := int32(0); i < minSize; i++ {
 		c, err := p.dialOne()
 		if err != nil {
