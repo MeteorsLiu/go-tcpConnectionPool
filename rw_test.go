@@ -15,8 +15,6 @@ func TestNetconn(t *testing.T) {
 	}
 	w := Wrapper(p)
 	defer w.Close()
-	id := make(chan int)
-
 	for i := 0; i < 500; i++ {
 		go func() {
 			b := make([]byte, 2)
