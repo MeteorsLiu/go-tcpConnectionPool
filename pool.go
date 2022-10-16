@@ -137,19 +137,18 @@ func (p *Pool) Get() (*ConnNode, error) {
 	succ := false
 	minCount := int32(0)
 	var min *ConnNode
-	counter := 0
 	for !succ && node != nil {
 		// try to grab the lock
 		succ = node.Lock.TryLock()
-		log.Printf("%d", counter)
 		if !succ {
 			if minCount > node.consumer || minCount == 0 {
 				minCount = node.consumer
 				min = node
 			}
+			p.mutex.RLock()
 			node = node.next
+			p.mutex.RUnlock()
 		}
-		counter++
 	}
 	if node == nil {
 		// tries are all fail
@@ -201,11 +200,7 @@ func (p *Pool) Close() {
 		// if there is someone reading or writing, it will return EOF immediately.
 		node.Conn.Close()
 		node = node.next
-		if node == p.tail {
-			log.Println("tail")
-		}
 	}
-	log.Println("end")
 }
 func (p *Pool) Push(c net.Conn) *ConnNode {
 	p.mutex.Lock()
