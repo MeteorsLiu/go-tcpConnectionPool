@@ -280,9 +280,8 @@ func (p *Pool) EpollClose() {
 	syscall.Close(p.epoll.fd)
 }
 func (p *Pool) connInit(minSize int32) {
-
+	log.Println(minSize)
 	for i := int32(0); i < minSize; i++ {
-
 		c, err := p.dialOne()
 		if err != nil {
 			log.Println(err)
@@ -311,7 +310,7 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if err := p.epollInit(); err != nil {
 		return nil, err
 	}
-	go p.connInit(m)
+	p.connInit(m)
 	go p.epollRun()
 	return p, nil
 }
