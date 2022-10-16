@@ -137,9 +137,11 @@ func (p *Pool) Get() (*ConnNode, error) {
 	succ := false
 	minCount := int32(0)
 	var min *ConnNode
+	counter := 0
 	for !succ && node != nil {
 		// try to grab the lock
 		succ = node.Lock.TryLock()
+		log.Printf("%d", counter)
 		if !succ {
 			if minCount > node.consumer || minCount == 0 {
 				minCount = node.consumer
@@ -147,6 +149,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 			}
 			node = node.next
 		}
+		counter++
 	}
 	if node == nil {
 		// tries are all fail
