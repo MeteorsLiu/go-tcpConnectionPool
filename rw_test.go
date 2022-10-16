@@ -2,12 +2,11 @@ package pool
 
 import (
 	"encoding/binary"
-	"sync"
 	"testing"
+	"time"
 )
 
 func TestNetconn(t *testing.T) {
-	var wg sync.WaitGroup
 	p, err := New("127.0.0.1:9998", DefaultOpts())
 	if err != nil {
 		t.Errorf("cannot start")
@@ -18,9 +17,7 @@ func TestNetconn(t *testing.T) {
 	id := make(chan int)
 
 	for i := 0; i < 500; i++ {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			b := make([]byte, 2)
 			binary.LittleEndian.PutUint16(b, uint16(<-id))
 			if _, err := w.Write(b); err != nil {
@@ -29,5 +26,5 @@ func TestNetconn(t *testing.T) {
 		}()
 		id <- i
 	}
-	wg.Wait()
+	<-time.After(time.Minute)
 }
