@@ -312,6 +312,6 @@ func New(remote string, opts Opts) (*Pool, error) {
 		return nil, err
 	}
 	go p.connInit(m)
-	//go p.epollRun()
+	go p.epollRun()
 	return p, nil
 }
