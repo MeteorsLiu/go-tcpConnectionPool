@@ -222,7 +222,8 @@ func (p *Pool) Push(c net.Conn) *ConnNode {
 		p.head = new
 		p.tail = new
 	} else {
-		p.MoveToTail(new)
+		new.After(p.tail)
+		p.tail = new
 	}
 	return new
 }
