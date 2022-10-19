@@ -40,7 +40,7 @@ type Pool struct {
 	len              int
 	remote           string
 	minConsumer      int32
-	maxSize          int
+	maxSize          int32
 	reconnect        int
 	reconnectTimeout time.Duration
 	connContext      context.Context
@@ -145,11 +145,11 @@ func (p *Pool) markReadable(n int) {
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
-				if p.epoll.events[i].Events&syscall.EPOLLERR ||
-					p.epoll.events[i].Events&syscall.EPOLLHUP {
+				if (p.epoll.events[i].Events&syscall.EPOLLERR) == 1 ||
+					(p.epoll.events[i].Events&syscall.EPOLLHUP) == 1 {
 					go p.Reconnect(node)
 				}
-				if p.epoll.events[i].Events & syscall.EPOLLIN {
+				if (p.epoll.events[i].Events & syscall.EPOLLIN) == 1 {
 					select {
 					case p.readableQueue <- node.Conn:
 					default:

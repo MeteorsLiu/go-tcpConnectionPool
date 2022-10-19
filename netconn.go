@@ -72,11 +72,14 @@ func (p *PoolNetconn) SetWriteDeadline(t time.Time) error {
 }
 
 // for those lazy people like me
-func CreatePool(remote string) net.Conn {
+func CreatePool(remote string) (net.Conn, error) {
 	p, err := New(remote, DefaultOpts())
+	if err != nil {
+		return nil, err
+	}
 	return &PoolNetconn{
 		pl: p,
-	}
+	}, nil
 }
 
 func NetConn(p *Pool) net.Conn {
