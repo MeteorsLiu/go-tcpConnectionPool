@@ -117,6 +117,7 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 		}
 		cn.Conn, err = p.dialWith(timeout)
 		if err == nil && cn.Conn != nil {
+			cn.isBad = false
 			f, _ := cn.Conn.(*net.TCPConn).File()
 			fd := int32(f.Fd())
 			cn.fd = fd
