@@ -152,6 +152,7 @@ func (p *Pool) markReadable(n int) {
 					go p.Reconnect(node)
 				}
 				if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
+					log.Println("Readable!")
 					select {
 					case p.readableQueue <- node.Conn:
 					default:
