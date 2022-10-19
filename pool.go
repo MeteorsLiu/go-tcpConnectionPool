@@ -262,7 +262,9 @@ func (p *Pool) Close() {
 	for node != nil {
 		// close the connection
 		// if there is someone reading or writing, it will return EOF immediately.
-		node.Conn.Close()
+		if node.Conn != nil {
+			node.Conn.Close()
+		}
 		node = node.next
 	}
 }
