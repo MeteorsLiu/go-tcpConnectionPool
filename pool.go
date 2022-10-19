@@ -145,9 +145,8 @@ func (p *Pool) markReadable(n int) {
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
-				if (p.epoll.events[i].Events&syscall.EPOLLERR) != 0 ||
-					(p.epoll.events[i].Events&syscall.EPOLLHUP) != 0 {
-					log.Println("connection error!")
+				if p.epoll.events[i].Events&(syscall.EPOLLERR|syscall.EPOLLRDHUP|syscall.EPOLLHUP) != 0 {
+					log.Println("disconnect")
 					go p.Reconnect(node)
 				}
 				if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
@@ -317,7 +316,7 @@ func (p *Pool) epollInit() error {
 // epoll event add
 func (p *Pool) eventAdd(fd int32) error {
 	var event syscall.EpollEvent
-	event.Events = syscall.EPOLLIN | EPOLLET
+	event.Events = syscall.EPOLLIN | EPOLLET | syscall.EPOLLRDHUP
 	event.Fd = fd
 	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
 		return err
