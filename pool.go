@@ -112,6 +112,7 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 		}
 		cn.Conn, err = p.dialWith(timeout)
 		if err == nil && cn.Conn != nil {
+			log.Println("Connected")
 			f, _ := cn.Conn.(*net.TCPConn).File()
 			fd := int32(f.Fd())
 			cn.fd = fd
@@ -142,11 +143,12 @@ func (p *Pool) markReadable(n int) {
 	p.mutex.RLock()
 	node := p.head
 	p.mutex.RUnlock()
+	hasBad := false
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
 				if p.epoll.events[i].Events&(syscall.EPOLLERR|syscall.EPOLLRDHUP|syscall.EPOLLHUP) != 0 {
-					log.Println("disconnect")
+					hasBad = true
 					go p.Reconnect(node)
 				}
 				if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
@@ -160,6 +162,9 @@ func (p *Pool) markReadable(n int) {
 		p.mutex.RLock()
 		node = node.next
 		p.mutex.RUnlock()
+	}
+	if hasBad {
+		log.Println("Some connections are disconnected. Try to reconnect...")
 	}
 }
 
