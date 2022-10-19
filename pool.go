@@ -145,11 +145,11 @@ func (p *Pool) markReadable(n int) {
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
-				if (p.epoll.events[i].Events&syscall.EPOLLERR) == 1 ||
-					(p.epoll.events[i].Events&syscall.EPOLLHUP) == 1 {
+				if (p.epoll.events[i].Events&syscall.EPOLLERR) != 0 ||
+					(p.epoll.events[i].Events&syscall.EPOLLHUP) != 0 {
 					go p.Reconnect(node)
 				}
-				if (p.epoll.events[i].Events & syscall.EPOLLIN) == 1 {
+				if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
 					select {
 					case p.readableQueue <- node.Conn:
 					default:
