@@ -37,7 +37,7 @@ type Pool struct {
 	head             *ConnNode
 	tail             *ConnNode
 	mutex            sync.RWMutex
-	len              int
+	len              int32
 	remote           string
 	minConsumer      int32
 	maxSize          int32
