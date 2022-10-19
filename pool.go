@@ -104,6 +104,7 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
 	var err error
+	log.Println("connection error!")
 	for i := 0; i < p.reconnect; i++ {
 		if cn.Conn != nil {
 			p.eventDel(cn.fd)
