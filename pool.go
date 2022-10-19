@@ -8,11 +8,14 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 )
 
 const (
 	MIN_SIZE                = 16
 	MIN_READABLE_QUEUE_SIZE = 1024
+	ATTEMPT_RECONNECT       = 100
+	RECONNECT_TIMEOUT       = 300
 	// it seems that the value of syscall.EPOLLET is wrong
 	EPOLLET = 0x80000000
 )
@@ -31,18 +34,21 @@ type ConnNode struct {
 	fd       int32
 }
 type Pool struct {
-	head          *ConnNode
-	tail          *ConnNode
-	mutex         sync.RWMutex
-	num           int32
-	remote        string
-	minConsumer   int32
-	connContext   context.Context
-	dialer        *net.Dialer
-	isClose       context.Context
-	close         context.CancelFunc
-	readableQueue chan net.Conn
-	epoll         struct {
+	head             *ConnNode
+	tail             *ConnNode
+	mutex            sync.RWMutex
+	len              int
+	remote           string
+	minConsumer      int32
+	maxSize          int
+	reconnect        int
+	reconnectTimeout time.Duration
+	connContext      context.Context
+	dialer           *net.Dialer
+	isClose          context.Context
+	close            context.CancelFunc
+	readableQueue    chan net.Conn
+	epoll            struct {
 		events [MIN_SIZE]syscall.EpollEvent
 		fd     int
 	}
@@ -92,6 +98,29 @@ func (cn *ConnNode) Before(n *ConnNode) {
 	cn.next = n
 }
 
+func (p *Pool) Reconnect(cn *ConnNode) {
+	cn.Lock.Lock()
+	defer cn.Lock.Unlock()
+	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
+	defer cancel()
+	var err error
+	for i := 0; i < p.reconnect; i++ {
+		if cn.Conn != nil {
+			p.eventDel(cn.fd)
+			cn.Conn.Close()
+			cn.Conn = nil
+		}
+		cn.Conn, err = p.dialWith(timeout)
+		if err == nil && cn.Conn != nil {
+			f, _ := cn.Conn.(*net.TCPConn).File()
+			fd := int32(f.Fd())
+			cn.fd = fd
+			p.eventAdd(fd)
+			return
+		}
+	}
+}
+
 // move the node to the head
 func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.mutex.Lock()
@@ -109,16 +138,22 @@ func (p *Pool) MoveToTail(cp *ConnNode) {
 }
 
 // add readable connections to the readableQueue
-func (p *Pool) MarkReadable(n int) {
+func (p *Pool) markReadable(n int) {
 	p.mutex.RLock()
 	node := p.head
 	p.mutex.RUnlock()
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
-				select {
-				case p.readableQueue <- node.Conn:
-				default:
+				if p.epoll.events[i].Events&syscall.EPOLLERR ||
+					p.epoll.events[i].Events&syscall.EPOLLHUP {
+					go p.Reconnect(node)
+				}
+				if p.epoll.events[i].Events & syscall.EPOLLIN {
+					select {
+					case p.readableQueue <- node.Conn:
+					default:
+					}
 				}
 			}
 		}
@@ -147,7 +182,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 	node := p.head
 	p.mutex.RUnlock()
 	succ := false
-	minCount := int32(0)
+	minCount := atomic.LoadInt32(&p.minConsumer)
 	var min *ConnNode
 	for !succ && node != nil {
 		// try to grab the lock.
@@ -171,15 +206,23 @@ func (p *Pool) Get() (*ConnNode, error) {
 			min.Lock.Lock()
 			node = min
 		} else {
-			// if all are busy
-			// try to dial a new one
-			c, err := p.dialOne()
-			if err != nil {
-				return nil, NO_AVAILABLE_CONN
+			if p.len < p.maxSize {
+				// if all are busy
+				// try to dial a new one
+				c, err := p.dialOne()
+				if err != nil {
+					return nil, NO_AVAILABLE_CONN
+				}
+				n := p.Push(c)
+				n.Lock.Lock()
+				node = n
+			} else {
+				// just wait
+				p.mutex.RLock()
+				node = p.head
+				p.mutex.RUnlock()
+				node.Lock.Lock()
 			}
-			n := p.Push(c)
-			n.Lock.Lock()
-			return n, nil
 		}
 	}
 	minC := atomic.AddInt32(&node.consumer, 1)
@@ -239,6 +282,7 @@ func (p *Pool) Push(c net.Conn) *ConnNode {
 		new.After(p.tail)
 		p.tail = new
 	}
+	p.len++
 	return new
 }
 
@@ -253,6 +297,11 @@ func (p *Pool) dialOne() (net.Conn, error) {
 	}
 	return c, err
 
+}
+
+// dialOne creates a TCP Connection,
+func (p *Pool) dialWith(ctx context.Context) (net.Conn, error) {
+	return p.dialer.DialContext(ctx, "tcp", p.remote)
 }
 
 func (p *Pool) epollInit() error {
@@ -275,6 +324,14 @@ func (p *Pool) eventAdd(fd int32) error {
 	return nil
 }
 
+// epoll event add
+func (p *Pool) eventDel(fd int32) error {
+	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_DEL, int(fd), nil); err != nil {
+		return err
+	}
+	return nil
+}
+
 // epoll daemon
 func (p *Pool) epollRun() {
 	for {
@@ -288,7 +345,7 @@ func (p *Pool) epollRun() {
 				continue
 			}
 		}
-		p.MarkReadable(n)
+		p.markReadable(n)
 	}
 }
 
@@ -302,11 +359,14 @@ func (p *Pool) connInit(minSize int32) {
 	for i := int32(0); i < minSize; i++ {
 		c, err := p.dialOne()
 		if err != nil {
-			log.Println(err)
 			continue
 		}
 		p.Push(c)
 	}
+}
+
+func (p *Pool) Remote() string {
+	return p.remote
 }
 func New(remote string, opts Opts) (*Pool, error) {
 	var d *net.Dialer
@@ -322,8 +382,9 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if m == 0 {
 		m = MIN_SIZE
 	}
-	p := &Pool{remote: remote, connContext: c, dialer: d, readableQueue: make(chan net.Conn, MIN_READABLE_QUEUE_SIZE)}
-
+	p := &Pool{remote: remote, connContext: c, dialer: d, readableQueue: make(chan net.Conn, MIN_READABLE_QUEUE_SIZE), maxSize: GetSysMax()}
+	p.reconnect = ATTEMPT_RECONNECT
+	p.reconnectTimeout = 5 * time.Minute
 	p.isClose, p.close = context.WithCancel(context.Background())
 	if err := p.epollInit(); err != nil {
 		return nil, err
