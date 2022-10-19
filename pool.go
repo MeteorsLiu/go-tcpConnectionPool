@@ -32,6 +32,7 @@ type ConnNode struct {
 	prev     *ConnNode
 	next     *ConnNode
 	fd       int32
+	isBad    bool
 }
 type Pool struct {
 	head             *ConnNode
@@ -99,8 +100,12 @@ func (cn *ConnNode) Before(n *ConnNode) {
 }
 
 func (p *Pool) Reconnect(cn *ConnNode) {
+	if cn.isBad {
+		return
+	}
 	cn.Lock.Lock()
 	defer cn.Lock.Unlock()
+	cn.isBad = true
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
 	var err error
@@ -112,7 +117,6 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 		}
 		cn.Conn, err = p.dialWith(timeout)
 		if err == nil && cn.Conn != nil {
-			log.Println("Connected")
 			f, _ := cn.Conn.(*net.TCPConn).File()
 			fd := int32(f.Fd())
 			cn.fd = fd
@@ -151,7 +155,6 @@ func (p *Pool) markReadable(n int) {
 					hasBad = true
 					go p.Reconnect(node)
 				} else if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
-					log.Println("Readable!")
 					select {
 					case p.readableQueue <- node.Conn:
 					default:
@@ -165,6 +168,8 @@ func (p *Pool) markReadable(n int) {
 	}
 	if hasBad {
 		log.Println("Some connections are disconnected. Try to reconnect...")
+		// pause for 5s
+		<-time.After(5 * time.Second)
 	}
 }
 
@@ -190,6 +195,13 @@ func (p *Pool) Get() (*ConnNode, error) {
 	minCount := atomic.LoadInt32(&p.minConsumer)
 	var min *ConnNode
 	for !succ && node != nil {
+		// skip bad connections
+		if node.isBad {
+			p.mutex.RLock()
+			node = node.next
+			p.mutex.RUnlock()
+			continue
+		}
 		// try to grab the lock.
 		// trylock will not pause the goroutine.
 		succ = node.Lock.TryLock()
@@ -198,6 +210,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 				minCount = node.consumer
 				min = node
 			}
+
 			p.mutex.RLock()
 			node = node.next
 			p.mutex.RUnlock()
