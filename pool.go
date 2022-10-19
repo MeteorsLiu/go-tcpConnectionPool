@@ -104,7 +104,6 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
 	var err error
-	log.Println("connection error!")
 	for i := 0; i < p.reconnect; i++ {
 		if cn.Conn != nil {
 			p.eventDel(cn.fd)
@@ -148,6 +147,7 @@ func (p *Pool) markReadable(n int) {
 			if p.epoll.events[i].Fd == node.fd {
 				if (p.epoll.events[i].Events&syscall.EPOLLERR) != 0 ||
 					(p.epoll.events[i].Events&syscall.EPOLLHUP) != 0 {
+					log.Println("connection error!")
 					go p.Reconnect(node)
 				}
 				if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
