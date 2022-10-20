@@ -254,6 +254,9 @@ func (p *Pool) Get() (*ConnNode, error) {
 			p.mutex.RLock()
 			node = p.head
 			p.mutex.RUnlock()
+			if node == nil {
+				return nil, NO_AVAILABLE_CONN
+			}
 			if node.isBad {
 				return nil, NO_AVAILABLE_CONN
 			}
