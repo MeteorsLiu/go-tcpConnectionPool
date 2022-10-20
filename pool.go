@@ -97,12 +97,38 @@ func (cn *ConnNode) Before(n *ConnNode) {
 	cn.next = n
 }
 
+func (p *Pool) Remove(n *ConnNode) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	if n.prev != nil {
+		n.prev.next = n.next
+	}
+	if n.next != nil {
+		n.next.prev = n.prev
+	}
+	if p.head == n {
+		p.head = n.next
+	}
+	if p.tail == n {
+		p.tail = n.prev
+	}
+	// make sure it will not unlock if the lock doesn't lock on.
+	n.Lock.TryLock()
+	n.Lock.Unlock()
+	n = nil
+	p.len--
+}
+
 func (p *Pool) Reconnect(cn *ConnNode) {
 	if cn.isBad {
 		return
 	}
 	cn.Lock.Lock()
-	defer cn.Lock.Unlock()
+	defer func() {
+		if cn != nil {
+			cn.Lock.Unlock()
+		}
+	}()
 	cn.isBad = true
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
@@ -123,6 +149,8 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 			return
 		}
 	}
+	p.Remove(cn)
+	cn = nil
 }
 
 // move the node to the head
@@ -226,6 +254,9 @@ func (p *Pool) Get() (*ConnNode, error) {
 			p.mutex.RLock()
 			node = p.head
 			p.mutex.RUnlock()
+			if node.isBad {
+				return nil, NO_AVAILABLE_CONN
+			}
 			node.Lock.Lock()
 		}
 
