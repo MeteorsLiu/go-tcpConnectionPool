@@ -271,7 +271,12 @@ func (p *Pool) Get() (*ConnNode, error) {
 // put the writable connection into the pool.
 func (p *Pool) Put(c *ConnNode) {
 	c.Lock.Unlock()
-	p.MoveToHead(c)
+	if p.head == c {
+		p.MoveToTail(c)
+	} else {
+		p.MoveToHead(c)
+	}
+
 }
 
 // close all connection.
