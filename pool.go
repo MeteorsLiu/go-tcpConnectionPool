@@ -6,7 +6,6 @@ import (
 	"log"
 	"net"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -40,7 +39,6 @@ type Pool struct {
 	mutex            sync.RWMutex
 	len              int32
 	remote           string
-	minConsumer      int32
 	maxSize          int32
 	reconnect        int
 	reconnectTimeout time.Duration
@@ -109,12 +107,12 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
 	var err error
+	if cn.Conn != nil {
+		p.eventDel(cn.fd)
+		cn.Conn.Close()
+		cn.Conn = nil
+	}
 	for i := 0; i < p.reconnect; i++ {
-		if cn.Conn != nil {
-			p.eventDel(cn.fd)
-			cn.Conn.Close()
-			cn.Conn = nil
-		}
 		cn.Conn, err = p.dialWith(timeout)
 		if err == nil && cn.Conn != nil {
 			cn.isBad = false
@@ -169,8 +167,8 @@ func (p *Pool) markReadable(n int) {
 	}
 	if hasBad {
 		log.Println("Some connections are disconnected. Try to reconnect...")
-		// pause for 5s
-		<-time.After(5 * time.Second)
+		// pause for 3s
+		<-time.After(3 * time.Second)
 	}
 }
 
@@ -193,8 +191,6 @@ func (p *Pool) Get() (*ConnNode, error) {
 	node := p.head
 	p.mutex.RUnlock()
 	succ := false
-	minCount := atomic.LoadInt32(&p.minConsumer)
-	var min *ConnNode
 	for !succ && node != nil {
 		// skip bad connections
 		if node.isBad {
@@ -207,11 +203,6 @@ func (p *Pool) Get() (*ConnNode, error) {
 		// trylock will not pause the goroutine.
 		succ = node.Lock.TryLock()
 		if !succ {
-			if minCount > node.consumer || minCount == 0 {
-				minCount = node.consumer
-				min = node
-			}
-
 			p.mutex.RLock()
 			node = node.next
 			p.mutex.RUnlock()
@@ -220,53 +211,33 @@ func (p *Pool) Get() (*ConnNode, error) {
 	if node == nil {
 		// tries are all fail
 		// stage into the lock strvation
-		if min != nil {
-			// grab the lock forcely.
-			min.Lock.Lock()
-			node = min
-		} else {
-			if p.len < p.maxSize {
-				// if all are busy
-				// try to dial a new one
-				c, err := p.dialOne()
-				if err != nil {
-					return nil, NO_AVAILABLE_CONN
-				}
-				n := p.Push(c)
-				n.Lock.Lock()
-				node = n
-			} else {
-				// just wait
-				p.mutex.RLock()
-				node = p.head
-				p.mutex.RUnlock()
-				node.Lock.Lock()
+		if p.len < p.maxSize {
+			// if all are busy
+			// try to dial a new one
+			c, err := p.dialOne()
+			if err != nil {
+				return nil, NO_AVAILABLE_CONN
 			}
+			n := p.Push(c)
+			n.Lock.Lock()
+			node = n
+		} else {
+			// just wait
+			p.mutex.RLock()
+			node = p.head
+			p.mutex.RUnlock()
+			node.Lock.Lock()
 		}
+
 	}
-	minC := atomic.AddInt32(&node.consumer, 1)
-	gminC := atomic.LoadInt32(&p.minConsumer)
-	if gminC > minC || gminC == 0 {
-		_ = atomic.SwapInt32(&p.minConsumer, minC)
-	}
+
 	return node, nil
 }
 
 // put the writable connection into the pool.
 func (p *Pool) Put(c *ConnNode) {
-	consumer := atomic.AddInt32(&c.consumer, -1)
 	c.Lock.Unlock()
-	if atomic.LoadInt32(&p.minConsumer) > consumer {
-		_ = atomic.SwapInt32(&p.minConsumer, consumer)
-		if p.head != c {
-			p.MoveToHead(c)
-		}
-	} else {
-		if p.tail != c {
-			p.MoveToTail(c)
-		}
-	}
-
+	p.MoveToHead(c)
 }
 
 // close all connection.
