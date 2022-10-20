@@ -138,6 +138,7 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 		cn.Conn.Close()
 		cn.Conn = nil
 	}
+	wait := 500 * time.Millisecond
 	for i := 0; i < p.reconnect; i++ {
 		cn.Conn, err = p.dialWith(timeout)
 		if err == nil && cn.Conn != nil {
@@ -148,6 +149,7 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 			p.eventAdd(fd)
 			return
 		}
+		time.Sleep(wait * time.Duration(i+1))
 	}
 	p.Remove(cn)
 	cn = nil
