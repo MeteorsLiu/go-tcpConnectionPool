@@ -23,13 +23,31 @@ func (p *PoolNetconn) Read(b []byte) (n int, err error) {
 }
 
 func (p *PoolNetconn) Write(b []byte) (n int, err error) {
-	c, err := p.pl.Get()
-	if err != nil {
-		return
+	if p.cn == nil {
+		p.cn, err = p.pl.Get()
+		if err != nil {
+			return
+		}
+	} else {
+		// someone grabs the connection
+		// try to regrab one
+		if !p.cn.IsAvailable() {
+			p.cn, err = p.pl.Get()
+			if err != nil {
+				return
+			}
+		}
+
 	}
-	defer p.pl.Put(c)
-	p.cn = c
-	n, err = c.Conn.Write(b)
+
+	n, err = p.cn.Conn.Write(b)
+	if err != nil {
+		p.pl.Put(p.cn)
+		p.cn = nil
+	}
+	// release the lock after using.
+	// so that the pool could maintain this connection when it is down.
+	p.cn.Lock.Unlock()
 	return
 }
 
