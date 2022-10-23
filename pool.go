@@ -424,7 +424,6 @@ func (p *Pool) Put(c *ConnNode) {
 
 // close all connection.
 func (p *Pool) Close() {
-	log.Printf("Epoll len: %d, len: %d", p.epoll.len, p.len)
 	p.EpollClose()
 	node := p.head
 	for node != nil {
