@@ -53,6 +53,57 @@ type Pool struct {
 	}
 }
 
+// dialOne creates a TCP Connection,
+func (p *Pool) dialOne() (net.Conn, error) {
+	var c net.Conn
+	var err error
+	// wait until write lock unlocks
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	if p.connContext == nil {
+		c, err = p.dialer.Dial("tcp", p.remote)
+	} else {
+		c, err = p.dialer.DialContext(p.connContext, "tcp", p.remote)
+	}
+	return c, err
+
+}
+
+// dialOne creates a TCP Connection,
+func (p *Pool) dialWith(ctx context.Context) (net.Conn, error) {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.dialer.DialContext(ctx, "tcp", p.remote)
+}
+
+func (p *Pool) epollInit() error {
+	epfd, err := syscall.EpollCreate1(0)
+	if err != nil {
+		return err
+	}
+	p.epoll.fd = epfd
+	return nil
+}
+
+// epoll event add
+func (p *Pool) eventAdd(fd int32) error {
+	var event syscall.EpollEvent
+	event.Events = syscall.EPOLLIN | EPOLLET | syscall.EPOLLRDHUP
+	event.Fd = fd
+	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
+		return err
+	}
+	return nil
+}
+
+// epoll event add
+func (p *Pool) eventDel(fd int32) error {
+	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_DEL, int(fd), nil); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Move the node between next and prev
 func (cn *ConnNode) MoveTo(next *ConnNode, prev *ConnNode) {
 	if next != nil {
@@ -119,6 +170,27 @@ func (p *Pool) Remove(n *ConnNode) {
 	p.len--
 }
 
+// this is NOT A THREAD-SAFE method
+// please check the Reconnect/Push function for the correct usage.
+// before calling this, you MUST lock the mutex lock of ConnNode.
+// otherwise, it will cause the data race problem.
+// if this connection is in used, removing this will cause nil pointer panic.
+func (p *Pool) RemoveConn(cn *ConnNode) {
+	p.eventDel(cn.fd)
+	cn.Conn.Close()
+	// notice gc to sweep the memory space of removed connection.
+	cn.Conn = nil
+}
+
+// this is NOT A THREAD-SAFE method
+// please check the Reconnect/Push function for the correct usage.
+func (p *Pool) AddConn(cn *ConnNode) {
+	f, _ := cn.Conn.(*net.TCPConn).File()
+	fd := int32(f.Fd())
+	cn.fd = fd
+	p.eventAdd(fd)
+}
+
 func (p *Pool) Reconnect(cn *ConnNode) {
 	if cn.isBad {
 		return
@@ -134,19 +206,14 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	defer cancel()
 	var err error
 	if cn.Conn != nil {
-		p.eventDel(cn.fd)
-		cn.Conn.Close()
-		cn.Conn = nil
+		p.RemoveConn(cn)
 	}
 	wait := 500 * time.Millisecond
 	for i := 0; i < p.reconnect; i++ {
 		cn.Conn, err = p.dialWith(timeout)
 		if err == nil && cn.Conn != nil {
 			cn.isBad = false
-			f, _ := cn.Conn.(*net.TCPConn).File()
-			fd := int32(f.Fd())
-			cn.fd = fd
-			p.eventAdd(fd)
+			p.AddConn(cn)
 			return
 		}
 		time.Sleep(wait * time.Duration(i+1))
@@ -171,35 +238,73 @@ func (p *Pool) MoveToTail(cp *ConnNode) {
 	p.tail = cp
 }
 
-// add readable connections to the readableQueue
-func (p *Pool) markReadable(n int) {
+func (p *Pool) Remote() string {
+	return p.remote
+}
+
+// set dial new remote
+func (p *Pool) SetRemote(remote string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.remote = remote
+}
+
+// set new dialer
+func (p *Pool) SetDialer(d *net.Dialer) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.dialer = d
+}
+
+// set new dial context
+func (p *Pool) SetDialContext(ctx context.Context) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.connContext = ctx
+}
+
+func (p *Pool) ReplaceRemote(remote string) error {
 	p.mutex.RLock()
 	node := p.head
 	p.mutex.RUnlock()
-	hasBad := false
+	p.SetRemote(remote)
 	for node != nil {
-		for i := 0; i < n; i++ {
-			if p.epoll.events[i].Fd == node.fd {
-				if p.epoll.events[i].Events&(syscall.EPOLLERR|syscall.EPOLLRDHUP|syscall.EPOLLHUP) != 0 {
-					hasBad = true
-					go p.Reconnect(node)
-				} else if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
-					select {
-					case p.readableQueue <- node.Conn:
-					default:
-					}
-				}
-			}
+		c, err := p.dialOne()
+		if err != nil {
+			return err
 		}
+		// grab the lock first
+		node.Lock.Lock()
+		p.RemoveConn(node)
+		node.Conn = c
+		p.AddConn(node)
+		node.Lock.Unlock()
+
 		p.mutex.RLock()
 		node = node.next
 		p.mutex.RUnlock()
 	}
-	if hasBad {
-		log.Println("Some connections are disconnected. Try to reconnect...")
-		// pause for 3s
-		<-time.After(3 * time.Second)
+	return nil
+}
+
+// this is for creating a new connection.
+// push the new connection into the pool
+func (p *Pool) Push(c net.Conn) *ConnNode {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	new := &ConnNode{
+		Conn: c,
 	}
+	p.AddConn(new)
+	if p.head == nil && p.tail == nil {
+		p.head = new
+		p.tail = new
+	} else {
+		new.After(p.tail)
+		p.tail = new
+	}
+	p.len++
+	return new
 }
 
 // get a readable connection from readable Queue.
@@ -295,74 +400,35 @@ func (p *Pool) Close() {
 	}
 }
 
-// this is for creating a new connection.
-// push the new connection into the pool
-func (p *Pool) Push(c net.Conn) *ConnNode {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	// Add to epoll events
-	f, _ := c.(*net.TCPConn).File()
-	fd := int32(f.Fd())
-	new := &ConnNode{
-		Conn: c,
-		fd:   fd,
+// add readable connections to the readableQueue
+func (p *Pool) markReadable(n int) {
+	p.mutex.RLock()
+	node := p.head
+	p.mutex.RUnlock()
+	hasBad := false
+	for node != nil {
+		for i := 0; i < n; i++ {
+			if p.epoll.events[i].Fd == node.fd {
+				if p.epoll.events[i].Events&(syscall.EPOLLERR|syscall.EPOLLRDHUP|syscall.EPOLLHUP) != 0 {
+					hasBad = true
+					go p.Reconnect(node)
+				} else if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
+					select {
+					case p.readableQueue <- node.Conn:
+					default:
+					}
+				}
+			}
+		}
+		p.mutex.RLock()
+		node = node.next
+		p.mutex.RUnlock()
 	}
-	p.eventAdd(fd)
-	if p.head == nil && p.tail == nil {
-		p.head = new
-		p.tail = new
-	} else {
-		new.After(p.tail)
-		p.tail = new
+	if hasBad {
+		log.Println("Some connections are disconnected. Try to reconnect...")
+		// pause for 3s
+		<-time.After(3 * time.Second)
 	}
-	p.len++
-	return new
-}
-
-// dialOne creates a TCP Connection,
-func (p *Pool) dialOne() (net.Conn, error) {
-	var c net.Conn
-	var err error
-	if p.connContext == nil {
-		c, err = p.dialer.Dial("tcp", p.remote)
-	} else {
-		c, err = p.dialer.DialContext(p.connContext, "tcp", p.remote)
-	}
-	return c, err
-
-}
-
-// dialOne creates a TCP Connection,
-func (p *Pool) dialWith(ctx context.Context) (net.Conn, error) {
-	return p.dialer.DialContext(ctx, "tcp", p.remote)
-}
-
-func (p *Pool) epollInit() error {
-	epfd, err := syscall.EpollCreate1(0)
-	if err != nil {
-		return err
-	}
-	p.epoll.fd = epfd
-	return nil
-}
-
-// epoll event add
-func (p *Pool) eventAdd(fd int32) error {
-	var event syscall.EpollEvent
-	event.Events = syscall.EPOLLIN | EPOLLET | syscall.EPOLLRDHUP
-	event.Fd = fd
-	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
-		return err
-	}
-	return nil
-}
-
-// epoll event add
-func (p *Pool) eventDel(fd int32) error {
-	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_DEL, int(fd), nil); err != nil {
-		return err
-	}
-	return nil
 }
 
 // epoll daemon
@@ -398,9 +464,6 @@ func (p *Pool) connInit(minSize int32) {
 	}
 }
 
-func (p *Pool) Remote() string {
-	return p.remote
-}
 func New(remote string, opts Opts) (*Pool, error) {
 	var d *net.Dialer
 	var m int32
