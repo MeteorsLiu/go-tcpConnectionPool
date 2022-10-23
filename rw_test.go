@@ -22,6 +22,8 @@ func TestNetconn(t *testing.T) {
 			if _, err := w.Write(b); err != nil {
 				t.Log(err)
 			}
+			w.Read(b)
+			t.Log(binary.LittleEndian.Uint16(b))
 		}()
 	}
 	<-time.After(time.Minute)
