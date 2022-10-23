@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// THIS IS NOT THREAD-SAFE
+// How to use? this is for one goroutine to wrapper the pool but which only requires one connection.
 type PoolNetconn struct {
 	pl *Pool
 	cn *ConnNode
@@ -22,6 +24,8 @@ func (p *PoolNetconn) Read(b []byte) (n int, err error) {
 	return
 }
 
+// this function will keep the same one connection unless the writing function returns an error.
+// In the most case, it only requires one connection.
 func (p *PoolNetconn) Write(b []byte) (n int, err error) {
 	if p.cn == nil {
 		p.cn, err = p.pl.Get()
