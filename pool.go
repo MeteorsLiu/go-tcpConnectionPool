@@ -5,13 +5,16 @@ import (
 	"errors"
 	"log"
 	"net"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
 const (
 	MIN_SIZE                = 16
+	EPOLL_MAX_SIZE          = 1024
 	MIN_READABLE_QUEUE_SIZE = 1024
 	ATTEMPT_RECONNECT       = 100
 	RECONNECT_TIMEOUT       = 300
@@ -25,13 +28,12 @@ var (
 )
 
 type ConnNode struct {
-	Conn     net.Conn
-	consumer int32
-	Lock     sync.Mutex
-	prev     *ConnNode
-	next     *ConnNode
-	fd       int32
-	isBad    bool
+	Conn  net.Conn
+	Lock  sync.Mutex
+	prev  *ConnNode
+	next  *ConnNode
+	fd    int32
+	isBad bool
 }
 type Pool struct {
 	head             *ConnNode
@@ -48,8 +50,9 @@ type Pool struct {
 	close            context.CancelFunc
 	readableQueue    chan net.Conn
 	epoll            struct {
-		events [MIN_SIZE]syscall.EpollEvent
+		events []syscall.EpollEvent
 		fd     int
+		len    int64
 	}
 }
 
@@ -82,6 +85,7 @@ func (p *Pool) epollInit() error {
 		return err
 	}
 	p.epoll.fd = epfd
+	p.epoll.events = make([]syscall.EpollEvent, EPOLL_MAX_SIZE)
 	return nil
 }
 
@@ -148,6 +152,26 @@ func (cn *ConnNode) Before(n *ConnNode) {
 	cn.next = n
 }
 
+// move the node to the head
+func (p *Pool) MoveToHead(cp *ConnNode) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	cp.Before(p.head)
+	p.head = cp
+}
+
+// move the node to the tail
+func (p *Pool) MoveToTail(cp *ConnNode) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	cp.After(p.tail)
+	p.tail = cp
+}
+
+func (p *Pool) Remote() string {
+	return p.remote
+}
+
 func (p *Pool) Remove(n *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -177,6 +201,7 @@ func (p *Pool) Remove(n *ConnNode) {
 // if this connection is in used, removing this will cause nil pointer panic.
 func (p *Pool) RemoveConn(cn *ConnNode) {
 	p.eventDel(cn.fd)
+	_ = atomic.AddInt64(&p.epoll.len, -1)
 	cn.Conn.Close()
 	// notice gc to sweep the memory space of removed connection.
 	cn.Conn = nil
@@ -189,6 +214,7 @@ func (p *Pool) AddConn(cn *ConnNode) {
 	fd := int32(f.Fd())
 	cn.fd = fd
 	p.eventAdd(fd)
+	_ = atomic.AddInt64(&p.epoll.len, 1)
 }
 
 func (p *Pool) Reconnect(cn *ConnNode) {
@@ -222,24 +248,24 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	cn = nil
 }
 
-// move the node to the head
-func (p *Pool) MoveToHead(cp *ConnNode) {
+// this is for creating a new connection.
+// push the new connection into the pool
+func (p *Pool) Push(c net.Conn) *ConnNode {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	cp.Before(p.head)
-	p.head = cp
-}
-
-// move the node to the tail
-func (p *Pool) MoveToTail(cp *ConnNode) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	cp.After(p.tail)
-	p.tail = cp
-}
-
-func (p *Pool) Remote() string {
-	return p.remote
+	new := &ConnNode{
+		Conn: c,
+	}
+	p.AddConn(new)
+	if p.head == nil && p.tail == nil {
+		p.head = new
+		p.tail = new
+	} else {
+		new.After(p.tail)
+		p.tail = new
+	}
+	p.len++
+	return new
 }
 
 // set dial new remote
@@ -311,26 +337,6 @@ func (p *Pool) ReplaceRemote(remote string) error {
 	return nil
 }
 
-// this is for creating a new connection.
-// push the new connection into the pool
-func (p *Pool) Push(c net.Conn) *ConnNode {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	new := &ConnNode{
-		Conn: c,
-	}
-	p.AddConn(new)
-	if p.head == nil && p.tail == nil {
-		p.head = new
-		p.tail = new
-	} else {
-		new.After(p.tail)
-		p.tail = new
-	}
-	p.len++
-	return new
-}
-
 // get a readable connection from readable Queue.
 // commonly, it's blocking. If there's no avaiblable connection, wait until avaiable.
 func (p *Pool) GetReadableConn() (net.Conn, error) {
@@ -350,6 +356,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 	node := p.head
 	p.mutex.RUnlock()
 	succ := false
+	isSpining := runtime.NumCPU() > 1
 	for !succ && node != nil {
 		// skip bad connections
 		if node.isBad {
@@ -360,7 +367,14 @@ func (p *Pool) Get() (*ConnNode, error) {
 		}
 		// try to grab the lock.
 		// trylock will not pause the goroutine.
-		succ = node.Lock.TryLock()
+		if isSpining {
+			// do spining
+			for i := 0; i < runtime.NumCPU() && !succ; i++ {
+				succ = node.Lock.TryLock()
+			}
+		} else {
+			succ = node.Lock.TryLock()
+		}
 		if !succ {
 			p.mutex.RLock()
 			node = node.next
@@ -458,7 +472,12 @@ func (p *Pool) markReadable(n int) {
 // epoll daemon
 func (p *Pool) epollRun() {
 	for {
-		n, err := syscall.EpollWait(p.epoll.fd, p.epoll.events[:], -1)
+		size := atomic.LoadInt64(&p.epoll.len)
+		if size > EPOLL_MAX_SIZE {
+			// resize if the number of connection is more than 1024
+			p.epoll.events = make([]syscall.EpollEvent, size)
+		}
+		n, err := syscall.EpollWait(p.epoll.fd, p.epoll.events[:size], -1)
 		if err != nil {
 			select {
 			case <-p.isClose.Done():
