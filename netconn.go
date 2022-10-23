@@ -44,6 +44,7 @@ func (p *PoolNetconn) Write(b []byte) (n int, err error) {
 	if err != nil {
 		p.pl.Put(p.cn)
 		p.cn = nil
+		return
 	}
 	// release the lock after using.
 	// so that the pool could maintain this connection when it is down.
