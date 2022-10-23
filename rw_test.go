@@ -15,6 +15,17 @@ func TestNetconn(t *testing.T) {
 	}
 	w := Wrapper(p)
 	defer w.Close()
+	go func() {
+		b := make([]byte, 2)
+		for {
+			_, err := w.Read(b)
+			if err != nil {
+				t.Log(err)
+				return
+			}
+			t.Log(binary.LittleEndian.Uint16(b))
+		}
+	}()
 	for i := 0; i < 500; i++ {
 		go func() {
 			b := make([]byte, 2)
@@ -22,8 +33,6 @@ func TestNetconn(t *testing.T) {
 			if _, err := w.Write(b); err != nil {
 				t.Log(err)
 			}
-			w.Read(b)
-			t.Log(binary.LittleEndian.Uint16(b))
 		}()
 	}
 	<-time.After(time.Minute)
