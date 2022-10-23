@@ -2,7 +2,6 @@ package pool
 
 import (
 	"encoding/binary"
-	"math/rand"
 	"testing"
 	"time"
 )
@@ -26,14 +25,16 @@ func TestNetconn(t *testing.T) {
 			t.Log(binary.LittleEndian.Uint16(b))
 		}
 	}()
+	ch := make(chan int)
 	for i := 0; i < 500; i++ {
 		go func() {
 			b := make([]byte, 2)
-			binary.LittleEndian.PutUint16(b, uint16(rand.Int()))
+			binary.LittleEndian.PutUint16(b, uint16(<-ch))
 			if _, err := w.Write(b); err != nil {
 				t.Log(err)
 			}
 		}()
+		ch <- i
 	}
 	<-time.After(time.Minute)
 }
