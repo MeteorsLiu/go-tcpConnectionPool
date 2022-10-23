@@ -263,6 +263,30 @@ func (p *Pool) SetDialContext(ctx context.Context) {
 	p.connContext = ctx
 }
 
+// set new max conn
+func (p *Pool) SetMaxConn(max int32) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.maxSize = max
+}
+
+// set new min conn
+func (p *Pool) SetMinConn(min int32) error {
+	p.mutex.RLock()
+	len := p.len
+	max := p.maxSize
+	p.mutex.RUnlock()
+	for len < min && min < max {
+		c, err := p.dialOne()
+		if err != nil {
+			return err
+		}
+		p.Push(c)
+		len++
+	}
+	return nil
+}
+
 func (p *Pool) ReplaceRemote(remote string) error {
 	p.mutex.RLock()
 	node := p.head
