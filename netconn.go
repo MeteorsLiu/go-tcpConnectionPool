@@ -2,6 +2,7 @@ package pool
 
 import (
 	"io"
+	"log"
 	"net"
 	"strconv"
 	"time"
@@ -43,6 +44,7 @@ func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
 	}
 	defer p.cn.Lock.Unlock()
 	n, err = p.cn.Conn.(*net.TCPConn).ReadFrom(r)
+	log.Println("zerocopy enabled")
 	return
 }
 
