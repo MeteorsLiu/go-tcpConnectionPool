@@ -168,6 +168,11 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	if cn.isBad {
 		return
 	}
+	// shut it down first
+	// this is for ReadFrom method, because that method will not be returned immediately if the connection is bad.
+	if cn.Conn != nil {
+		p.RemoveConn(cn)
+	}
 	cn.Lock.Lock()
 	defer func() {
 		if cn != nil {
@@ -178,9 +183,7 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
 	var err error
-	if cn.Conn != nil {
-		p.RemoveConn(cn)
-	}
+
 	wait := 500 * time.Millisecond
 	for i := 0; i < p.reconnect; i++ {
 		cn.Conn, err = p.dialWith(timeout)
