@@ -300,13 +300,14 @@ func (p *Pool) GetReadableConn() (net.Conn, error) {
 
 // get a writable connection.
 func (p *Pool) Get() (*ConnNode, error) {
-	p.mutex.RLock()
-	node := p.head
-	p.mutex.RUnlock()
+	var node *ConnNode
 	succ := false
 	// do spining for multi-core machines.
 	// this aims to reduce the new connection.
 	for i := 0; i < runtime.NumCPU() && !succ; i++ {
+		p.mutex.RLock()
+		node := p.head
+		p.mutex.RUnlock()
 		for !succ && node != nil {
 			// skip bad connections
 			if node.isBad {
