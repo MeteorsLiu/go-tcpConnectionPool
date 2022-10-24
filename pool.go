@@ -212,7 +212,6 @@ func (p *Pool) Push(c net.Conn) *ConnNode {
 		p.tail = new
 	}
 	p.len++
-	log.Println("push ", p.len, p.epoll.len)
 	return new
 }
 
