@@ -1,6 +1,9 @@
 package pool
 
-import "io"
+import (
+	"io"
+	"net"
+)
 
 type PoolWrapper struct {
 	pl *Pool
@@ -22,6 +25,16 @@ func (p *PoolWrapper) Write(b []byte) (n int, err error) {
 	}
 	defer p.pl.Put(c)
 	n, err = c.Conn.Write(b)
+	return
+}
+
+func (p *PoolWrapper) ReadFrom(r io.Reader) (n int64, err error) {
+	c, err := p.pl.Get()
+	if err != nil {
+		return
+	}
+	defer p.pl.Put(c)
+	n, err = c.Conn.(*net.TCPConn).ReadFrom(r)
 	return
 }
 

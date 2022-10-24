@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -21,6 +22,27 @@ func (p *PoolNetconn) Read(b []byte) (n int, err error) {
 		return
 	}
 	n, err = c.Read(b)
+	return
+}
+
+func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
+	if p.cn == nil {
+		p.cn, err = p.pl.Get()
+		if err != nil {
+			return
+		}
+	} else {
+		// someone grabs the connection
+		// try to regrab one
+		if !p.cn.IsAvailable() {
+			p.cn, err = p.pl.Get()
+			if err != nil {
+				return
+			}
+		}
+	}
+	defer p.cn.Lock.Unlock()
+	n, err = p.cn.Conn.(*net.TCPConn).ReadFrom(r)
 	return
 }
 
