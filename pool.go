@@ -417,6 +417,10 @@ func (p *Pool) markReadable(n int) {
 func (p *Pool) epollRun() {
 	for {
 		size := atomic.LoadInt64(&p.epoll.len)
+		if size == 0 {
+			time.Sleep(time.Second)
+			continue
+		}
 		if size > EPOLL_MAX_SIZE {
 			// resize if the number of connection is more than 1024
 			p.epoll.events = make([]syscall.EpollEvent, size)
