@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -305,30 +304,30 @@ func (p *Pool) Get() (*ConnNode, error) {
 	succ := false
 	// do spining for multi-core machines.
 	// this aims to reduce the new connection.
-	for i := 0; i < runtime.NumCPU() && !succ; i++ {
-		p.mutex.RLock()
-		node := p.head
-		p.mutex.RUnlock()
-		for !succ && node != nil {
-			// skip bad connections
-			if node.isBad {
-				p.mutex.RLock()
-				node = node.next
-				p.mutex.RUnlock()
-				continue
-			}
-			// try to grab the lock.
-			// trylock will not pause the goroutine.
 
-			succ = node.Lock.TryLock()
+	p.mutex.RLock()
+	node = p.head
+	p.mutex.RUnlock()
+	for !succ && node != nil {
+		// skip bad connections
+		if node.isBad {
+			p.mutex.RLock()
+			node = node.next
+			p.mutex.RUnlock()
+			continue
+		}
+		// try to grab the lock.
+		// trylock will not pause the goroutine.
 
-			if !succ {
-				p.mutex.RLock()
-				node = node.next
-				p.mutex.RUnlock()
-			}
+		succ = node.Lock.TryLock()
+
+		if !succ {
+			p.mutex.RLock()
+			node = node.next
+			p.mutex.RUnlock()
 		}
 	}
+
 	if node == nil {
 		// tries are all fail
 		// stage into the lock strvation
