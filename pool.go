@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -304,7 +305,9 @@ func (p *Pool) Get() (*ConnNode, error) {
 	succ := false
 	// do spining for multi-core machines.
 	// this aims to reduce the new connection.
-
+	isSpining := runtime.NumCPU() > 1
+	i := 0
+	expect := runtime.NumCPU()
 	p.mutex.RLock()
 	node = p.head
 	p.mutex.RUnlock()
@@ -325,6 +328,12 @@ func (p *Pool) Get() (*ConnNode, error) {
 			p.mutex.RLock()
 			node = node.next
 			p.mutex.RUnlock()
+			if isSpining && node == nil && i < expect {
+				p.mutex.RLock()
+				node = p.head
+				p.mutex.RUnlock()
+				i++
+			}
 		}
 	}
 
