@@ -150,8 +150,6 @@ func (p *Pool) RemoveConn(cn *ConnNode) {
 	p.eventDel(cn.fd)
 	_ = atomic.AddInt64(&p.epoll.len, -1)
 	cn.Conn.Close()
-	// notice gc to sweep the memory space of removed connection.
-	cn.Conn = nil
 }
 
 // this is NOT A THREAD-SAFE method
@@ -165,12 +163,16 @@ func (p *Pool) AddConn(cn *ConnNode) {
 }
 
 func (p *Pool) Reconnect(cn *ConnNode) {
-	if cn.isBad {
+	if cn.isBad || cn.isClosed == 1 {
 		return
 	}
 	// shut it down first
 	// this is for ReadFrom method, because that method will not be returned immediately if the connection is bad.
 	if cn.Conn != nil {
+		// the connection has been closed.
+		if !atomic.CompareAndSwapInt32(&cn.isClosed, 0, 1) {
+			return
+		}
 		p.RemoveConn(cn)
 	}
 	cn.Lock.Lock()
@@ -179,6 +181,9 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 			cn.Lock.Unlock()
 		}
 	}()
+	// we need to be careful to handle the closed connection.
+	// grab the lock first
+	cn.Conn = nil
 	cn.isBad = true
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
@@ -190,6 +195,7 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 		if err == nil && cn.Conn != nil {
 			cn.isBad = false
 			p.AddConn(cn)
+			atomic.CompareAndSwapInt32(&cn.isClosed, 1, 0)
 			return
 		}
 		time.Sleep(wait * time.Duration(i+1))

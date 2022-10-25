@@ -6,12 +6,13 @@ import (
 )
 
 type ConnNode struct {
-	Conn  net.Conn
-	Lock  sync.Mutex
-	prev  *ConnNode
-	next  *ConnNode
-	fd    int32
-	isBad bool
+	Conn     net.Conn
+	Lock     sync.Mutex
+	prev     *ConnNode
+	next     *ConnNode
+	fd       int32
+	isBad    bool
+	isClosed int32
 }
 
 // Move the node between next and prev

@@ -26,7 +26,7 @@ func (p *PoolNetconn) Read(b []byte) (n int, err error) {
 }
 
 func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
-	if p.cn == nil {
+	if p.cn == nil || p.cn.isClosed == 1 {
 		p.cn, err = p.pl.Get()
 		if err != nil {
 			return
@@ -49,7 +49,7 @@ func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
 // this function will keep the same one connection unless the writing function returns an error.
 // In the most case, it only requires one connection.
 func (p *PoolNetconn) Write(b []byte) (n int, err error) {
-	if p.cn == nil {
+	if p.cn == nil || p.cn.isClosed == 1 {
 		p.cn, err = p.pl.Get()
 		if err != nil {
 			return
