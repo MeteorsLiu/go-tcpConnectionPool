@@ -4,39 +4,49 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 )
 
 // THIS IS NOT THREAD-SAFE
 // How to use? this is for one goroutine to wrapper the pool but which only requires one connection.
 type PoolNetconn struct {
-	pl *Pool
-	cn *ConnNode
+	pl   *Pool
+	cn   *ConnNode
+	cond *sync.Cond
 }
 
-// DON'T USE single cn, NO EVERY CONNECTION is ready to read.
-// use readableQueue to read packet.
+func (p *PoolNetconn) getConn() (err error) {
+	p.cond.L.Lock()
+	p.cn, err = p.pl.Get()
+	p.cond.L.Unlock()
+	p.cond.Broadcast()
+	return err
+}
 func (p *PoolNetconn) Read(b []byte) (n int, err error) {
-	c, err := p.pl.GetReadableConn()
-	if err != nil {
+	if p.cn == nil || p.cn.isClosed == 1 {
+		p.cond.L.Lock()
+		p.cond.Wait()
+		p.cond.L.Unlock()
+	}
+	if p.cn == nil {
+		err = NO_AVAILABLE_CONN
 		return
 	}
-	n, err = c.Read(b)
+	n, err = p.cn.Conn.Read(b)
 	return
 }
 
 func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
 	if p.cn == nil || p.cn.isClosed == 1 {
-		p.cn, err = p.pl.Get()
-		if err != nil {
+		if err = p.getConn(); err != nil {
 			return
 		}
 	} else {
 		// someone grabs the connection
 		// try to regrab one
 		if !p.cn.IsAvailable() {
-			p.cn, err = p.pl.Get()
-			if err != nil {
+			if err = p.getConn(); err != nil {
 				return
 			}
 		}
@@ -46,35 +56,40 @@ func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
 	return
 }
 
+func (p *PoolNetconn) WriteTo(w io.Writer) (n int64, err error) {
+	if p.cn == nil || p.cn.isClosed == 1 {
+		p.cond.L.Lock()
+		p.cond.Wait()
+		p.cond.L.Unlock()
+	}
+	if p.cn == nil {
+		err = NO_AVAILABLE_CONN
+		return
+	}
+	n, err = io.Copy(w, p.cn.Conn)
+	return
+}
+
 // this function will keep the same one connection unless the writing function returns an error.
 // In the most case, it only requires one connection.
 func (p *PoolNetconn) Write(b []byte) (n int, err error) {
 	if p.cn == nil || p.cn.isClosed == 1 {
-		p.cn, err = p.pl.Get()
-		if err != nil {
+		if err = p.getConn(); err != nil {
 			return
 		}
 	} else {
 		// someone grabs the connection
 		// try to regrab one
 		if !p.cn.IsAvailable() {
-			p.cn, err = p.pl.Get()
-			if err != nil {
+			if err = p.getConn(); err != nil {
 				return
 			}
 		}
-
-	}
-
-	n, err = p.cn.Conn.Write(b)
-	if err != nil {
-		p.pl.Put(p.cn)
-		p.cn = nil
-		return
 	}
 	// release the lock after using.
 	// so that the pool could maintain this connection when it is down.
-	p.cn.Lock.Unlock()
+	defer p.cn.Lock.Unlock()
+	n, err = p.cn.Conn.Write(b)
 	return
 }
 
@@ -84,9 +99,15 @@ func (p *PoolNetconn) Close() error {
 }
 
 func (p *PoolNetconn) LocalAddr() net.Addr {
+	if p.cn != nil {
+		return p.cn.Conn.LocalAddr()
+	}
 	return nil
 }
 func (p *PoolNetconn) RemoteAddr() net.Addr {
+	if p.cn != nil {
+		return p.cn.Conn.RemoteAddr()
+	}
 	host, port, _ := net.SplitHostPort(p.pl.Remote())
 	pt, _ := strconv.Atoi(port)
 	return &net.TCPAddr{
@@ -123,12 +144,14 @@ func CreatePool(remote string) (net.Conn, error) {
 		return nil, err
 	}
 	return &PoolNetconn{
-		pl: p,
+		pl:   p,
+		cond: sync.NewCond(&sync.Mutex{}),
 	}, nil
 }
 
 func NetConn(p *Pool) net.Conn {
 	return &PoolNetconn{
-		pl: p,
+		pl:   p,
+		cond: sync.NewCond(&sync.Mutex{}),
 	}
 }
