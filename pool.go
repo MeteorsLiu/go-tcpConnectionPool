@@ -163,14 +163,14 @@ func (p *Pool) AddConn(cn *ConnNode) {
 }
 
 func (p *Pool) Reconnect(cn *ConnNode) {
-	if cn.isBad || cn.isClosed == 1 {
+	if cn.IsDown() || cn.IsClosed() {
 		return
 	}
 	// shut it down first
 	// this is for ReadFrom method, because that method will not be returned immediately if the connection is bad.
 	if cn.Conn != nil {
 		// the connection has been closed.
-		if !atomic.CompareAndSwapInt32(&cn.isClosed, 0, 1) {
+		if !cn.Down() {
 			return
 		}
 		p.RemoveConn(cn)
@@ -184,7 +184,6 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	// we need to be careful to handle the closed connection.
 	// grab the lock first
 	cn.Conn = nil
-	cn.isBad = true
 	timeout, cancel := context.WithTimeout(context.Background(), p.reconnectTimeout)
 	defer cancel()
 	var err error
@@ -193,9 +192,8 @@ func (p *Pool) Reconnect(cn *ConnNode) {
 	for i := 0; i < p.reconnect; i++ {
 		cn.Conn, err = p.dialWith(timeout)
 		if err == nil && cn.Conn != nil {
-			cn.isBad = false
 			p.AddConn(cn)
-			atomic.CompareAndSwapInt32(&cn.isClosed, 1, 0)
+			cn.Up()
 			return
 		}
 		time.Sleep(wait * time.Duration(i+1))
@@ -315,7 +313,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 	p.mutex.RUnlock()
 	for !succ && node != nil {
 		// skip bad connections
-		if node.isBad {
+		if node.IsDown() || node.IsClosed() {
 			p.mutex.RLock()
 			node = node.next
 			p.mutex.RUnlock()
@@ -324,7 +322,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 		// try to grab the lock.
 		// trylock will not pause the goroutine.
 
-		succ = node.Lock.TryLock()
+		succ = node.IsAvailable()
 
 		if !succ {
 			p.mutex.RLock()
@@ -354,7 +352,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 			if node == nil {
 				return nil, NO_AVAILABLE_CONN
 			}
-			if node.isBad {
+			if node.IsDown() || node.IsClosed() {
 				return nil, NO_AVAILABLE_CONN
 			}
 			node.Lock.Lock()
@@ -426,8 +424,13 @@ func (p *Pool) epollRun() {
 	for {
 		size := atomic.LoadInt64(&p.epoll.len)
 		if size == 0 {
-			time.Sleep(time.Second)
-			continue
+			select {
+			case <-p.isClose.Done():
+				return
+			default:
+				time.Sleep(time.Second)
+				continue
+			}
 		}
 		if size > EPOLL_MAX_SIZE {
 			// resize if the number of connection is more than 1024

@@ -24,7 +24,7 @@ func (p *PoolNetconn) getConn() (err error) {
 	return err
 }
 func (p *PoolNetconn) Read(b []byte) (n int, err error) {
-	if p.cn == nil || p.cn.isClosed == 1 {
+	if p.cn == nil || p.cn.IsDown() || p.cn.IsClosed() {
 		p.cond.L.Lock()
 		p.cond.Wait()
 		p.cond.L.Unlock()
@@ -38,7 +38,7 @@ func (p *PoolNetconn) Read(b []byte) (n int, err error) {
 }
 
 func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
-	if p.cn == nil || p.cn.isClosed == 1 {
+	if p.cn == nil || p.cn.IsDown() || p.cn.IsClosed() {
 		if err = p.getConn(); err != nil {
 			return
 		}
@@ -57,7 +57,7 @@ func (p *PoolNetconn) ReadFrom(r io.Reader) (n int64, err error) {
 }
 
 func (p *PoolNetconn) WriteTo(w io.Writer) (n int64, err error) {
-	if p.cn == nil || p.cn.isClosed == 1 {
+	if p.cn == nil || p.cn.IsDown() || p.cn.IsClosed() {
 		p.cond.L.Lock()
 		p.cond.Wait()
 		p.cond.L.Unlock()
@@ -73,7 +73,7 @@ func (p *PoolNetconn) WriteTo(w io.Writer) (n int64, err error) {
 // this function will keep the same one connection unless the writing function returns an error.
 // In the most case, it only requires one connection.
 func (p *PoolNetconn) Write(b []byte) (n int, err error) {
-	if p.cn == nil || p.cn.isClosed == 1 {
+	if p.cn == nil || p.cn.IsDown() || p.cn.IsClosed() {
 		if err = p.getConn(); err != nil {
 			return
 		}
