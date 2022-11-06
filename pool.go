@@ -103,6 +103,9 @@ func (p *Pool) eventDel(fd int32) error {
 func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+	if p.tail == cp {
+		p.tail = cp.prev
+	}
 	cp.Before(p.head)
 	p.head = cp
 }
@@ -111,6 +114,9 @@ func (p *Pool) MoveToHead(cp *ConnNode) {
 func (p *Pool) MoveToTail(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
+	if p.head == cp {
+		p.head = cp.next
+	}
 	cp.After(p.tail)
 	p.tail = cp
 }
