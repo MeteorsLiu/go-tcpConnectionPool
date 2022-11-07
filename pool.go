@@ -400,25 +400,20 @@ func (p *Pool) Read(b []byte) (n int, err error) {
 }
 
 func (p *Pool) readWorker() {
-	for {
-		select {
-		case <-p.isClose.Done():
-			return
-		case c := <-p.readableQueue:
-			b := *p.bufferPool.Get().(*[]byte)
-			n, err := c.Read(b[0:cap(b)])
-			if err != nil {
-				// TODO
-				log.Println(err)
-			}
-			b = b[0:n]
-			select {
-			case p.readerBufferCh <- &b:
-			default:
-				// don't block
-			}
-		}
+	c := <-p.readableQueue
+	b := *p.bufferPool.Get().(*[]byte)
+	n, err := c.Read(b[0:cap(b)])
+	if err != nil {
+		// TODO
+		log.Println(err)
 	}
+	b = b[0:n]
+	select {
+	case p.readerBufferCh <- &b:
+	default:
+		// don't block
+	}
+
 }
 
 // add readable connections to the readableQueue
@@ -434,8 +429,8 @@ func (p *Pool) markReadable(n int) {
 					hasBad = true
 					go p.Reconnect(node)
 				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
-					log.Println("In")
 					p.readableQueue <- node.Conn
+					go p.readWorker()
 				}
 
 			}
@@ -488,7 +483,6 @@ func (p *Pool) EpollClose() {
 // initialize the connection first.
 func (p *Pool) connInit(minSize int32) {
 	for i := int32(0); i < minSize; i++ {
-		go p.readWorker()
 		c, err := p.dialOne()
 		if err != nil {
 			continue
