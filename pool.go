@@ -394,8 +394,6 @@ func (p *Pool) Read(b []byte) (n int, err error) {
 
 func (p *Pool) readWorker() {
 	c := <-p.readableQueue
-	c.Lock.Lock()
-	defer c.Lock.Unlock()
 	b := *p.bufferPool.Get().(*[]byte)
 	n, err := c.Conn.Read(b[0:cap(b)])
 	if err != nil {
