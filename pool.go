@@ -373,9 +373,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 // put the writable connection into the pool.
 func (p *Pool) Put(c *ConnNode) {
 	c.Lock.Unlock()
-	if p.head == c {
-		p.MoveToTail(c)
-	} else {
+	if p.head != c {
 		p.MoveToHead(c)
 	}
 }
@@ -432,12 +430,9 @@ func (p *Pool) markReadable(n int) {
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
-				if p.epoll.events[i].Events&(syscall.EPOLLERR|syscall.EPOLLRDHUP|syscall.EPOLLHUP) != 0 {
-					hasBad = true
-					go p.Reconnect(node)
-				} else if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
-					p.readableQueue <- node.Conn
-				}
+
+				p.readableQueue <- node.Conn
+
 			}
 		}
 		p.mutex.RLock()
