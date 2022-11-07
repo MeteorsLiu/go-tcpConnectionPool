@@ -85,7 +85,7 @@ func (p *Pool) epollInit() error {
 // epoll event add
 func (p *Pool) eventAdd(fd int32) error {
 	var event syscall.EpollEvent
-	event.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP
+	event.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP | EPOLLET
 	event.Fd = fd
 	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
 		return err
@@ -430,8 +430,13 @@ func (p *Pool) markReadable(n int) {
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
-
-				p.readableQueue <- node.Conn
+				if p.epoll.events[i].Events&(syscall.EPOLLERR|syscall.EPOLLRDHUP|syscall.EPOLLHUP) != 0 {
+					hasBad = true
+					go p.Reconnect(node)
+				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
+					log.Println("In")
+					p.readableQueue <- node.Conn
+				}
 
 			}
 		}
