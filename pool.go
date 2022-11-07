@@ -39,7 +39,7 @@ type Pool struct {
 	dialer           *net.Dialer
 	isClose          context.Context
 	close            context.CancelFunc
-	readableQueue    chan net.Conn
+	readableQueue    chan *ConnNode
 	readerBufferCh   chan *[]byte
 	bufferPool       sync.Pool
 	epoll            struct {
@@ -301,14 +301,7 @@ func (p *Pool) ReplaceRemote(remote string) error {
 
 // Deprecated
 func (p *Pool) GetReadableConn() (net.Conn, error) {
-	var c net.Conn
-	select {
-	case c = <-p.readableQueue:
-		return c, nil
-	case <-p.isClose.Done():
-		return nil, POOL_CLOSED
-	}
-
+	return nil, nil
 }
 
 // get a writable connection.
@@ -401,8 +394,10 @@ func (p *Pool) Read(b []byte) (n int, err error) {
 
 func (p *Pool) readWorker() {
 	c := <-p.readableQueue
+	c.Lock.Lock()
+	defer c.Lock.Unlock()
 	b := *p.bufferPool.Get().(*[]byte)
-	n, err := c.Read(b[0:cap(b)])
+	n, err := c.Conn.Read(b[0:cap(b)])
 	if err != nil {
 		// TODO
 		log.Println(err)
@@ -512,7 +507,7 @@ func New(remote string, opts Opts) (*Pool, error) {
 			return &b
 		},
 	}
-	p.readableQueue = make(chan net.Conn, MIN_READABLE_QUEUE_SIZE)
+	p.readableQueue = make(chan *ConnNode, MIN_READABLE_QUEUE_SIZE)
 	p.readerBufferCh = make(chan *[]byte, MIN_READABLE_QUEUE_SIZE)
 	p.reconnect = ATTEMPT_RECONNECT
 	p.reconnectTimeout = 5 * time.Minute
