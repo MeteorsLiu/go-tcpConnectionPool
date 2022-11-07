@@ -10,11 +10,7 @@ type PoolWrapper struct {
 }
 
 func (p *PoolWrapper) Read(b []byte) (n int, err error) {
-	c, err := p.pl.GetReadableConn()
-	if err != nil {
-		return
-	}
-	n, err = c.Read(b)
+	n, err = p.pl.Read(b)
 	return
 }
 

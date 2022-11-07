@@ -40,6 +40,8 @@ type Pool struct {
 	isClose          context.Context
 	close            context.CancelFunc
 	readableQueue    chan net.Conn
+	readerBufferCh   chan *[]byte
+	bufferPool       sync.Pool
 	epoll            struct {
 		events []syscall.EpollEvent
 		fd     int
@@ -297,8 +299,7 @@ func (p *Pool) ReplaceRemote(remote string) error {
 	return nil
 }
 
-// get a readable connection from readable Queue.
-// commonly, it's blocking. If there's no avaiblable connection, wait until avaiable.
+// Deprecated
 func (p *Pool) GetReadableConn() (net.Conn, error) {
 	var c net.Conn
 	select {
@@ -340,7 +341,7 @@ func (p *Pool) Get() (*ConnNode, error) {
 	if node == nil {
 		// tries are all fail
 		// stage into the lock strvation
-		if p.len < p.maxSize {
+		if atomic.LoadInt32(&p.len) < p.maxSize {
 			// if all are busy
 			// try to dial a new one
 			c, err := p.dialOne()
@@ -377,7 +378,6 @@ func (p *Pool) Put(c *ConnNode) {
 	} else {
 		p.MoveToHead(c)
 	}
-
 }
 
 // close all connection.
@@ -394,6 +394,35 @@ func (p *Pool) Close() {
 	}
 }
 
+func (p *Pool) Read(b []byte) (n int, err error) {
+	buf := <-p.readerBufferCh
+	defer p.bufferPool.Put(buf)
+	n = copy(b, *buf)
+	return
+}
+
+func (p *Pool) readWorker() {
+	for {
+		select {
+		case <-p.isClose.Done():
+			return
+		case c := <-p.readableQueue:
+			b := *p.bufferPool.Get().(*[]byte)
+			n, err := c.Read(b[0:cap(b)])
+			if err != nil {
+				// TODO
+				log.Println(err)
+			}
+			b = b[0:n]
+			select {
+			case p.readerBufferCh <- &b:
+			default:
+				// don't block
+			}
+		}
+	}
+}
+
 // add readable connections to the readableQueue
 func (p *Pool) markReadable(n int) {
 	p.mutex.RLock()
@@ -407,10 +436,7 @@ func (p *Pool) markReadable(n int) {
 					hasBad = true
 					go p.Reconnect(node)
 				} else if (p.epoll.events[i].Events & syscall.EPOLLIN) != 0 {
-					select {
-					case p.readableQueue <- node.Conn:
-					default:
-					}
+					p.readableQueue <- node.Conn
 				}
 			}
 		}
@@ -420,8 +446,6 @@ func (p *Pool) markReadable(n int) {
 	}
 	if hasBad {
 		log.Println("Some connections are disconnected. Try to reconnect...")
-		// pause for 3s
-		<-time.After(3 * time.Second)
 	}
 }
 
@@ -464,6 +488,7 @@ func (p *Pool) EpollClose() {
 // initialize the connection first.
 func (p *Pool) connInit(minSize int32) {
 	for i := int32(0); i < minSize; i++ {
+		go p.readWorker()
 		c, err := p.dialOne()
 		if err != nil {
 			continue
@@ -486,7 +511,15 @@ func New(remote string, opts Opts) (*Pool, error) {
 	if m == 0 {
 		m = MIN_SIZE
 	}
-	p := &Pool{remote: remote, connContext: c, dialer: d, readableQueue: make(chan net.Conn, MIN_READABLE_QUEUE_SIZE), maxSize: GetSysMax()}
+	p := &Pool{remote: remote, connContext: c, dialer: d, maxSize: GetSysMax()}
+	p.bufferPool = sync.Pool{
+		New: func() any {
+			b := make([]byte, 4096)
+			return &b
+		},
+	}
+	p.readableQueue = make(chan net.Conn, MIN_READABLE_QUEUE_SIZE)
+	p.readerBufferCh = make(chan *[]byte, MIN_READABLE_QUEUE_SIZE)
 	p.reconnect = ATTEMPT_RECONNECT
 	p.reconnectTimeout = 5 * time.Minute
 	p.isClose, p.close = context.WithCancel(context.Background())

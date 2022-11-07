@@ -42,9 +42,12 @@ func (cn *ConnNode) After(n *ConnNode) {
 	if cn.next != nil {
 		cn.next.prev = cn.prev
 	}
-	n.next = cn
 	cn.prev = n
-	cn.next = nil
+	cn.next = n.next
+	cn.prev.next = cn
+	if cn.next != nil {
+		cn.next.prev = cn
+	}
 }
 
 // move the node ahead n
@@ -55,9 +58,12 @@ func (cn *ConnNode) Before(n *ConnNode) {
 	if cn.next != nil {
 		cn.next.prev = cn.prev
 	}
-	n.prev = cn
-	cn.prev = nil
+	cn.prev = n.prev
 	cn.next = n
+	cn.next.prev = cn
+	if cn.prev != nil {
+		cn.prev.next = cn
+	}
 }
 
 func (cn *ConnNode) IsAvailable() bool {
