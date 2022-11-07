@@ -28,7 +28,7 @@ func TestNetconn(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		go func() {
 			b := make([]byte, 2)
-			defer log.Println("Exit")
+			defer t.Log("Exit")
 			binary.LittleEndian.PutUint16(b, uint16(1))
 			if _, err := w.Write(b); err != nil {
 				t.Log(err)
