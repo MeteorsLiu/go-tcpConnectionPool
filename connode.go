@@ -36,34 +36,14 @@ func (cn *ConnNode) MoveTo(next *ConnNode, prev *ConnNode) {
 
 // move the node after n
 func (cn *ConnNode) After(n *ConnNode) {
-	if cn.prev != nil {
-		cn.prev.next = cn.next
-	}
-	if cn.next != nil {
-		cn.next.prev = cn.prev
-	}
 	cn.prev = n
-	cn.next = n.next
 	cn.prev.next = cn
-	if cn.next != nil {
-		cn.next.prev = cn
-	}
 }
 
 // move the node ahead n
 func (cn *ConnNode) Before(n *ConnNode) {
-	if cn.prev != nil {
-		cn.prev.next = cn.next
-	}
-	if cn.next != nil {
-		cn.next.prev = cn.prev
-	}
-	cn.prev = n.prev
 	cn.next = n
 	cn.next.prev = cn
-	if cn.prev != nil {
-		cn.prev.next = cn
-	}
 }
 
 func (cn *ConnNode) IsAvailable() bool {

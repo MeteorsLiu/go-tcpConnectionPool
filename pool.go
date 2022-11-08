@@ -106,6 +106,7 @@ func (p *Pool) MoveToHead(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	if p.tail == cp {
+		cp.prev.After(p.tail)
 		p.tail = cp.prev
 	}
 	cp.Before(p.head)
@@ -117,6 +118,7 @@ func (p *Pool) MoveToTail(cp *ConnNode) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	if p.head == cp {
+		cp.next.Before(p.head)
 		p.head = cp.next
 	}
 	cp.After(p.tail)
@@ -223,7 +225,11 @@ func (p *Pool) Push(c net.Conn) *ConnNode {
 		p.head = new
 		p.tail = new
 	} else {
-		new.After(p.tail)
+		node := p.head
+		for node.next != nil {
+			node = node.next
+		}
+		new.After(new)
 		p.tail = new
 	}
 	p.len++
