@@ -429,6 +429,7 @@ func (p *Pool) markReadable(n int) {
 				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
 					select {
 					case p.readableQueue <- node:
+					default:
 						log.Println("Full")
 					}
 				}
