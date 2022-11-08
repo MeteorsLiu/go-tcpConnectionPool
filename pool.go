@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -340,12 +341,16 @@ func (p *Pool) Get() (*ConnNode, error) {
 	if node == nil {
 		// tries are all fail
 		// stage into the lock strvation
-		if atomic.LoadInt32(&p.len) < p.maxSize {
+		currConnNum := atomic.LoadInt32(&p.len)
+		if currConnNum < p.maxSize {
 			// if all are busy
 			// try to dial a new one
 			c, err := p.dialOne()
 			if err != nil {
 				return nil, NO_AVAILABLE_CONN
+			}
+			if currConnNum < int32(runtime.NumCPU()) {
+				go p.readWorker()
 			}
 			n := p.Push(c)
 			n.Lock.Lock()
@@ -389,7 +394,13 @@ func (p *Pool) Close() {
 }
 
 func (p *Pool) Read(b []byte) (n int, err error) {
-	buf := <-p.readerBufferCh
+	var buf *[]byte
+	select {
+	case buf = <-p.readerBufferCh:
+	case <-p.isClose.Done():
+		err = POOL_CLOSED
+		return
+	}
 	defer p.bufferPool.Put(buf)
 	n = copy(b, *buf)
 	return
@@ -431,6 +442,7 @@ func (p *Pool) markReadable(n int) {
 					hasBad = true
 					go p.Reconnect(node)
 				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
+					// non-block
 					select {
 					case p.readableQueue <- node:
 					default:

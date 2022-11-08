@@ -6,6 +6,11 @@ import (
 	"sync/atomic"
 )
 
+const (
+	UP int32 = iota
+	DOWN
+)
+
 type ConnNode struct {
 	Conn     net.Conn
 	Lock     sync.Mutex
@@ -50,21 +55,21 @@ func (cn *ConnNode) IsAvailable() bool {
 	return cn.Lock.TryLock()
 }
 func (cn *ConnNode) Down() bool {
-	if atomic.CompareAndSwapInt32(&cn.isClosed, 0, 1) {
+	if atomic.CompareAndSwapInt32(&cn.isClosed, UP, DOWN) {
 		cn.isBad = true
 		return true
 	}
 	return false
 }
 func (cn *ConnNode) Up() bool {
-	if atomic.CompareAndSwapInt32(&cn.isClosed, 1, 0) {
+	if atomic.CompareAndSwapInt32(&cn.isClosed, DOWN, UP) {
 		cn.isBad = false
 		return true
 	}
 	return false
 }
 func (cn *ConnNode) IsClosed() bool {
-	return cn.isClosed == 1
+	return cn.isClosed == DOWN
 }
 
 func (cn *ConnNode) IsDown() bool {
