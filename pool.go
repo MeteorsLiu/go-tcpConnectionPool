@@ -410,6 +410,10 @@ func (p *Pool) readWorker() {
 	for {
 		select {
 		case c := <-p.readableQueue:
+			if c.IsClosed() || c.IsDown() {
+				// skip
+				continue
+			}
 			b := *p.bufferPool.Get().(*[]byte)
 			n, err := c.Conn.Read(b[0:cap(b)])
 			if err != nil {
@@ -420,7 +424,7 @@ func (p *Pool) readWorker() {
 			select {
 			case p.readerBufferCh <- &b:
 			default:
-				log.Println("Full")
+				log.Println("The reading queue is full")
 			}
 		case <-p.isClose.Done():
 			return
