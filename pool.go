@@ -449,6 +449,7 @@ func (p *Pool) epollRun() {
 				continue
 			}
 		}
+		log.Println(size)
 		if size > EPOLL_MAX_SIZE {
 			// resize if the number of connection is more than 1024
 			p.epoll.events = make([]syscall.EpollEvent, size)
