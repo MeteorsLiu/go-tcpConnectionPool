@@ -83,19 +83,19 @@ func (p *Pool) epollInit() error {
 }
 
 // epoll event add
-func (p *Pool) eventAdd(fd int32) error {
+func (p *Pool) eventAdd(fd int) error {
 	var event syscall.EpollEvent
 	event.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP
 	event.Fd = fd
-	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
+	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, fd, &event); err != nil {
 		return err
 	}
 	return nil
 }
 
 // epoll event add
-func (p *Pool) eventDel(fd int32) error {
-	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_DEL, int(fd), nil); err != nil {
+func (p *Pool) eventDel(fd int) error {
+	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_DEL, fd, nil); err != nil {
 		return err
 	}
 	return nil
@@ -157,7 +157,7 @@ func (p *Pool) Remove(n *ConnNode) {
 // otherwise, it will cause the data race problem.
 // if this connection is in used, removing this will cause nil pointer panic.
 func (p *Pool) RemoveConn(cn *ConnNode) {
-	p.eventDel(cn.fd)
+	p.eventDel(int(cn.fd))
 	_ = atomic.AddInt64(&p.epoll.len, -1)
 	cn.Conn.Close()
 }
@@ -168,7 +168,7 @@ func (p *Pool) AddConn(cn *ConnNode) {
 	f, _ := cn.Conn.(*net.TCPConn).File()
 	fd := int32(f.Fd())
 	cn.fd = fd
-	p.eventAdd(fd)
+	p.eventAdd(int(f.Fd()))
 	_ = atomic.AddInt64(&p.epoll.len, 1)
 }
 
@@ -449,7 +449,6 @@ func (p *Pool) epollRun() {
 				continue
 			}
 		}
-		log.Println(size)
 		if size > EPOLL_MAX_SIZE {
 			// resize if the number of connection is more than 1024
 			p.epoll.events = make([]syscall.EpollEvent, size)
