@@ -229,7 +229,7 @@ func (p *Pool) Push(c net.Conn) *ConnNode {
 		for node.next != nil {
 			node = node.next
 		}
-		new.After(new)
+		new.After(node)
 		p.tail = new
 	}
 	p.len++
