@@ -427,7 +427,10 @@ func (p *Pool) markReadable(n int) {
 					hasBad = true
 					go p.Reconnect(node)
 				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
-					p.readableQueue <- node
+					select {
+					case p.readableQueue <- node:
+						log.Println("Full")
+					}
 				}
 			}
 		}
