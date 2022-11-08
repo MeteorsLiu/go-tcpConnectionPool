@@ -1,7 +1,9 @@
 package pool
 
 import (
+	"bufio"
 	"encoding/binary"
+	"io"
 	"testing"
 	"time"
 )
@@ -17,15 +19,18 @@ func TestNetconn(t *testing.T) {
 	go func() {
 		b := make([]byte, 2)
 		count := 0
+		r := bufio.NewReader(w)
 		for {
-			_, err := w.Read(b)
+			_, err := io.ReadFull(r, b)
 			if err != nil {
 				t.Log(err)
 				return
 			}
-			count++
+			bf := int(binary.LittleEndian.Uint16(b))
+			if bf == 1 {
+				count++
+			}
 			t.Log(count)
-			//t.Log(binary.LittleEndian.Uint16(b))
 		}
 	}()
 	for i := 0; i < 500; i++ {
