@@ -396,15 +396,21 @@ func (p *Pool) Read(b []byte) (n int, err error) {
 }
 
 func (p *Pool) readWorker() {
-	c := <-p.readableQueue
-	b := *p.bufferPool.Get().(*[]byte)
-	n, err := c.Conn.Read(b[0:cap(b)])
-	if err != nil {
-		// TODO
-		log.Println(err)
+	for {
+		select {
+		case c := <-p.readableQueue:
+			b := *p.bufferPool.Get().(*[]byte)
+			n, err := c.Conn.Read(b[0:cap(b)])
+			if err != nil {
+				// TODO
+				log.Println(err)
+			}
+			b = b[0:n]
+			p.readerBufferCh <- &b
+		case <-p.isClose.Done():
+			return
+		}
 	}
-	b = b[0:n]
-	p.readerBufferCh <- &b
 
 }
 
@@ -422,12 +428,12 @@ func (p *Pool) markReadable(n int) {
 					go p.Reconnect(node)
 				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
 					p.readableQueue <- node
-					go p.readWorker()
 				}
-
 			}
 		}
+		p.mutex.RLock()
 		node = node.next
+		p.mutex.RUnlock()
 	}
 	if hasBad {
 		log.Println("Some connections are disconnected. Try to reconnect...")
@@ -473,6 +479,7 @@ func (p *Pool) EpollClose() {
 // initialize the connection first.
 func (p *Pool) connInit(minSize int32) {
 	for i := int32(0); i < minSize; i++ {
+		go p.readWorker()
 		c, err := p.dialOne()
 		if err != nil {
 			continue
