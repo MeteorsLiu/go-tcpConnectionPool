@@ -85,7 +85,7 @@ func (p *Pool) epollInit() error {
 // epoll event add
 func (p *Pool) eventAdd(fd int32) error {
 	var event syscall.EpollEvent
-	event.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP
+	event.Events = syscall.EPOLLIN | syscall.EPOLLRDHUP | EPOLLET
 	event.Fd = fd
 	if err := syscall.EpollCtl(p.epoll.fd, syscall.EPOLL_CTL_ADD, int(fd), &event); err != nil {
 		return err
@@ -406,7 +406,11 @@ func (p *Pool) readWorker() {
 				log.Println(err)
 			}
 			b = b[0:n]
-			p.readerBufferCh <- &b
+			select {
+			case p.readerBufferCh <- &b:
+			default:
+				log.Println("Full")
+			}
 		case <-p.isClose.Done():
 			return
 		}
@@ -430,7 +434,6 @@ func (p *Pool) markReadable(n int) {
 					select {
 					case p.readableQueue <- node:
 					default:
-						log.Println("Full")
 					}
 				}
 			}
