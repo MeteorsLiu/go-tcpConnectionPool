@@ -499,10 +499,20 @@ func (p *Pool) EpollClose() {
 
 // initialize the connection first.
 func (p *Pool) connInit(minSize int32) {
-	for i := int32(0); i < minSize; i++ {
+	for i := 0; i < int(minSize); i++ {
 		go p.readWorker()
+	}
+	for i := int32(0); i < minSize; i++ {
 		c, err := p.dialOne()
 		if err != nil {
+			select {
+			case <-p.isClose.Done():
+				return
+			default:
+			}
+			// retry += 1
+			// the retry will stop until minSize is overflowed to 0
+			minSize++
 			continue
 		}
 		p.Push(c)
