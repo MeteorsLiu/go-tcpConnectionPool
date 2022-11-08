@@ -404,11 +404,7 @@ func (p *Pool) readWorker() {
 		log.Println(err)
 	}
 	b = b[0:n]
-	select {
-	case p.readerBufferCh <- &b:
-	default:
-		// don't block
-	}
+	p.readerBufferCh <- &b
 
 }
 
