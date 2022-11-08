@@ -442,14 +442,18 @@ func (p *Pool) markReadable(n int) {
 	for node != nil {
 		for i := 0; i < n; i++ {
 			if p.epoll.events[i].Fd == node.fd {
+				select {
+				case <-p.isClose.Done():
+					return
+				default:
+				}
 				if p.epoll.events[i].Events&(syscall.EPOLLERR|syscall.EPOLLRDHUP|syscall.EPOLLHUP) != 0 {
 					hasBad = true
+
 					go p.Reconnect(node)
 				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
 					// non-block
 					select {
-					case <-p.isClose.Done():
-						return
 					case p.readableQueue <- node:
 					default:
 					}
