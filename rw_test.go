@@ -16,19 +16,21 @@ func TestNetconn(t *testing.T) {
 	defer w.Close()
 	go func() {
 		b := make([]byte, 2)
+		count := 0
 		for {
 			_, err := w.Read(b)
 			if err != nil {
 				t.Log(err)
 				return
 			}
-			t.Log(binary.LittleEndian.Uint16(b))
+			count++
+			t.Log(count)
+			//t.Log(binary.LittleEndian.Uint16(b))
 		}
 	}()
 	for i := 0; i < 500; i++ {
 		go func() {
 			b := make([]byte, 2)
-			defer t.Log("Exit")
 			binary.LittleEndian.PutUint16(b, uint16(1))
 			if _, err := w.Write(b); err != nil {
 				t.Log(err)
