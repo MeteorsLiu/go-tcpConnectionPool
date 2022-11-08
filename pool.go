@@ -410,9 +410,6 @@ func (p *Pool) readWorker() {
 	for {
 		select {
 		case c := <-p.readableQueue:
-			if c == nil {
-				return
-			}
 			b := *p.bufferPool.Get().(*[]byte)
 			n, err := c.Conn.Read(b[0:cap(b)])
 			if err != nil {
@@ -447,6 +444,8 @@ func (p *Pool) markReadable(n int) {
 				} else if p.epoll.events[i].Events&syscall.EPOLLIN != 0 {
 					// non-block
 					select {
+					case <-p.isClose.Done():
+						return
 					case p.readableQueue <- node:
 					default:
 					}
