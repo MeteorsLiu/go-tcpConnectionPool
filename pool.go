@@ -410,6 +410,9 @@ func (p *Pool) readWorker() {
 	for {
 		select {
 		case c := <-p.readableQueue:
+			if c == nil {
+				return
+			}
 			b := *p.bufferPool.Get().(*[]byte)
 			n, err := c.Conn.Read(b[0:cap(b)])
 			if err != nil {
