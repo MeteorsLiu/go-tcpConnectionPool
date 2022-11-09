@@ -379,12 +379,12 @@ func (p *Pool) Get() (*ConnNode, error) {
 					p.mutex.RUnlock()
 					continue
 				}
-				node.Wait()
+				break
 			}
 			if node == nil {
 				return nil, NO_AVAILABLE_CONN
 			}
-
+			node.Wait()
 		}
 
 	}
