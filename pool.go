@@ -318,6 +318,8 @@ func (p *Pool) Get() (*ConnNode, error) {
 	p.mutex.RLock()
 	node = p.head
 	p.mutex.RUnlock()
+	allBad := true
+	// Fast path
 	for !succ && node != nil {
 		// skip bad connections
 		if node.IsDown() || node.IsClosed() {
@@ -325,6 +327,10 @@ func (p *Pool) Get() (*ConnNode, error) {
 			node = node.next
 			p.mutex.RUnlock()
 			continue
+		}
+
+		if allBad {
+			allBad = false
 		}
 		// try to grab the lock.
 		// trylock will not pause the goroutine.
@@ -337,14 +343,14 @@ func (p *Pool) Get() (*ConnNode, error) {
 			p.mutex.RUnlock()
 		}
 	}
-
+	if node == nil && allBad {
+		return nil, NO_AVAILABLE_CONN
+	}
 	if node == nil {
-		// tries are all fail
-		// stage into the lock strvation
+		// fast path 2
+		// always non-block if available
 		currConnNum := atomic.LoadInt32(&p.len)
 		if currConnNum < p.maxSize {
-			// if all are busy
-			// try to dial a new one
 			c, err := p.dialOne()
 			if err != nil {
 				return nil, NO_AVAILABLE_CONN
@@ -356,17 +362,29 @@ func (p *Pool) Get() (*ConnNode, error) {
 			n.Lock.Lock()
 			node = n
 		} else {
-			// just wait
+			// slow path
 			p.mutex.RLock()
 			node = p.head
 			p.mutex.RUnlock()
+			for node != nil {
+				if node.IsDown() || node.IsClosed() {
+					p.mutex.RLock()
+					node = node.next
+					p.mutex.RUnlock()
+					continue
+				}
+				if node.IsBusy() && node.next != nil {
+					p.mutex.RLock()
+					node = node.next
+					p.mutex.RUnlock()
+					continue
+				}
+				node.Wait()
+			}
 			if node == nil {
 				return nil, NO_AVAILABLE_CONN
 			}
-			if node.IsDown() || node.IsClosed() {
-				return nil, NO_AVAILABLE_CONN
-			}
-			node.Lock.Lock()
+
 		}
 
 	}

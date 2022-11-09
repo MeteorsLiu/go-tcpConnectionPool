@@ -18,6 +18,7 @@ type ConnNode struct {
 	next     *ConnNode
 	fd       int32
 	isBad    bool
+	waitNum  int32
 	isClosed int32
 }
 
@@ -51,9 +52,24 @@ func (cn *ConnNode) Before(n *ConnNode) {
 	cn.next.prev = cn
 }
 
+// the connection is busy or not
+func (cn *ConnNode) IsBusy() bool {
+	return atomic.LoadInt32(&cn.waitNum) > 1
+}
+
+// wait until the connection is available
+func (cn *ConnNode) Wait() {
+	atomic.AddInt32(&cn.waitNum, 1)
+	defer atomic.AddInt32(&cn.waitNum, -1)
+	cn.Lock.Lock()
+}
+
+// connection is available or not
 func (cn *ConnNode) IsAvailable() bool {
 	return cn.Lock.TryLock()
 }
+
+// set the connection down
 func (cn *ConnNode) Down() bool {
 	if atomic.CompareAndSwapInt32(&cn.isClosed, UP, DOWN) {
 		cn.isBad = true
@@ -61,6 +77,8 @@ func (cn *ConnNode) Down() bool {
 	}
 	return false
 }
+
+// set the connection up
 func (cn *ConnNode) Up() bool {
 	if atomic.CompareAndSwapInt32(&cn.isClosed, DOWN, UP) {
 		cn.isBad = false
@@ -68,10 +86,13 @@ func (cn *ConnNode) Up() bool {
 	}
 	return false
 }
+
+// the connection is closed or not
 func (cn *ConnNode) IsClosed() bool {
 	return cn.isClosed == DOWN
 }
 
+// the connection is down or not
 func (cn *ConnNode) IsDown() bool {
 	return cn.isBad
 }
